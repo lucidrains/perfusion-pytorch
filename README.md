@@ -15,3 +15,14 @@ Thought the work may be overhyped at first, but it seems to have successfully bu
     url     = {https://api.semanticscholar.org/CorpusID:258436985}
 }
 ```
+
+```bibtex
+@inproceedings{Meng2022LocatingAE,
+    title   = {Locating and Editing Factual Associations in GPT},
+    author  = {Kevin Meng and David Bau and Alex Andonian and Yonatan Belinkov},
+    booktitle = {Neural Information Processing Systems},
+    year    = {2022},
+    url     = {https://api.semanticscholar.org/CorpusID:255825985}
+}
+```
+
