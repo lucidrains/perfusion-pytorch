@@ -1,3 +1,5 @@
+<img src="./key-locked-rank-1-editing.png" width="450px"></img>
+
 ## Perfusion - Pytorch (wip)
 
 Implementation of <a href="https://arxiv.org/abs/2305.01644">Key-Locked Rank One Editing</a>. <a href="https://research.nvidia.com/labs/par/Perfusion/">Project page</a>
