@@ -23,6 +23,7 @@ class Rank1EditModule(Module):
         *,
         num_finetune_prompts: int,
         C: Tensor,
+        is_key_proj: bool = False,
         input_decay = 0.99,
         train_beta = 0.75,
         train_temperature = 0.1,
@@ -34,6 +35,8 @@ class Rank1EditModule(Module):
 
         self.weight = key_or_values_proj.weight
         dim_input = self.weight.shape[-1]
+
+        self.is_key_proj = is_key_proj # will lock the output to the super-class, and turn off gradients
 
         self.train_beta = train_beta
         self.train_temperature = train_temperature

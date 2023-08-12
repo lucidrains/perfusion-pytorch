@@ -27,6 +27,7 @@ C = torch.randn(512, 512)
 wrapped_to_keys = Rank1EditModule(
     to_keys,
     C = C,
+    is_key_proj = True,
     num_finetune_prompts = 32
 )
 
