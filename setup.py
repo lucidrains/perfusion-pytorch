@@ -17,6 +17,7 @@ setup(
     'text-to-image'
   ],
   install_requires=[
+    'beartype',
     'einops>=0.6.1',
     'torch>=2.0'
   ],
