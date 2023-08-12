@@ -97,9 +97,9 @@ class Rank1EditModule(Module):
 
             # update using exponential moving average
 
-            ema_concept_text_enc = ema_concept_text_enc * decay + concept_text_enc * (1. - decay)
+            concept_text_enc = ema_concept_text_enc * decay + concept_text_enc * (1. - decay)
 
             self.initted[prompt_ids] = True
-            self.ema_concept_text_enc[prompt_ids] = ema_concept_text_enc
+            self.ema_concept_text_enc[prompt_ids] = concept_text_enc
 
         return einsum('b n i, o i -> b n o', text_enc, weights)
