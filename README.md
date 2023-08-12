@@ -4,7 +4,7 @@
 
 Implementation of <a href="https://arxiv.org/abs/2305.01644">Key-Locked Rank One Editing</a>. <a href="https://research.nvidia.com/labs/par/Perfusion/">Project page</a>
 
-Thought the work may be overhyped at first, but upon reading the paper, it seems they successfully built upon a (I think) crucial <a href="https://arxiv.org/abs/2202.05262">memory editing paper</a> (<a href="https://www.youtube.com/watch?v=_NMQyOu2HTo">Yannic Kilcher interview with authors</a>)! This will be a boon for all types of attention networks.
+It seems they successfully applied the Rank-1 editing technique from a <a href="https://arxiv.org/abs/2202.05262">memory editing paper for LLM</a>, with a few improvements. They also identified that the keys determine the "where" of the new concept, while the values determine the "what", and propose local / global-key locking to a superclass concept (while learning the values).
 
 ## Citations
 
