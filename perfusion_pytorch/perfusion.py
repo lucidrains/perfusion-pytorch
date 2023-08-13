@@ -103,7 +103,12 @@ class Rank1EditModule(Module):
         if self.is_key_proj:
             text_enc_with_superclass_output = text_enc_with_superclass_output.detach()
 
-        online_estimated_concept_enc = decay * superclass_text_enc + (1. - decay) * concept_text_enc
+        # only during training do they exponentially smooth
+
+        if self.training:            
+            online_estimated_concept_enc = decay * superclass_text_enc + (1. - decay) * concept_text_enc
+        else:
+            online_estimated_concept_enc = concept_text_enc
 
         # make it easier to match with paper
 
