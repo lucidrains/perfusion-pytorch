@@ -23,10 +23,10 @@ import torch
 from perfusion_pytorch import Rank1EditModule
 from torch import nn
 
-to_keys = nn.Linear(512, 1024, bias = False)
-to_values = nn.Linear(512, 1024, bias = False)
+to_keys = nn.Linear(768, 320, bias = False)
+to_values = nn.Linear(768, 320, bias = False)
 
-input_covariance = torch.randn(512, 512)
+input_covariance = torch.randn(768, 768)
 
 wrapped_to_keys = Rank1EditModule(
     to_keys,
@@ -41,10 +41,9 @@ wrapped_to_values = Rank1EditModule(
     num_finetune_prompts = 32
 )
 
-text_enc = torch.randn(4, 256, 512)                  # regular input
-text_enc_with_superclass = torch.randn(4, 256, 512)  # init_input in algorithm 1, for key-locking
-concept_ids = torch.randint(0, 256, (4,))
-
+text_enc = torch.randn(4, 77, 768)                  # regular input
+text_enc_with_superclass = torch.randn(4, 77, 768)  # init_input in algorithm 1, for key-locking
+concept_ids = torch.randint(0, 77, (4,))
 
 keys = wrapped_to_keys(text_enc, text_enc_with_superclass, concept_ids)
 values = wrapped_to_values(text_enc, text_enc_with_superclass, concept_ids)

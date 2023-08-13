@@ -26,7 +26,7 @@ class Rank1EditModule(Module):
         *,
         num_finetune_prompts: int,
         C: Tensor,                  # covariance of input, precomputed from 100K laion text
-        text_seq_len: int = 256,
+        text_seq_len: int = 77,
         is_key_proj: bool = False,
         input_decay = 0.99,
         train_beta = 0.75,
@@ -92,16 +92,16 @@ class Rank1EditModule(Module):
         concept_text_enc = text_enc[batch_indices, concept_indices]
         concept_text_enc = rearrange(concept_text_enc, 'b 1 d -> b d')
 
-        superclass_text_enc = text_enc_with_superclass[batch_indices, concept_indices]
-        superclass_text_enc = rearrange(superclass_text_enc, 'b 1 d -> b d')
-
         # take care of initializing with superclass prompt
         # for key-locking - this assumes stable diffusion was modified so text encoder takes in a prompt with both the <concept> as well as <superclass> - it seems this also has the limitation that <superclass> must be one token
 
-        text_enc_with_superclass_output = einsum('b n i, o i -> b n o', text_enc_with_superclass, weights)
+        superclass_text_enc = text_enc_with_superclass[batch_indices, concept_indices]
+        superclass_text_enc = rearrange(superclass_text_enc, 'b 1 d -> b d')
+
+        superclass_text_enc_output = einsum('b i, o i -> b o', superclass_text_enc, weights)
 
         if self.is_key_proj:
-            text_enc_with_superclass_output = text_enc_with_superclass_output.detach()
+            superclass_text_enc_output = superclass_text_enc_output.detach()
 
         # only during training do they exponentially smooth
 
@@ -112,7 +112,7 @@ class Rank1EditModule(Module):
 
         # make it easier to match with paper
 
-        i, o, W = online_estimated_concept_enc, text_enc_with_superclass_output, weights
+        i, o, W = online_estimated_concept_enc, superclass_text_enc_output, weights
 
         # main contribution eq (3)
 
@@ -131,4 +131,4 @@ class Rank1EditModule(Module):
 
         W_em_orthogonal_term = text_enc_output - (sim * concept_output / i_energy)
 
-        return W_em_orthogonal_term + sigmoid_term * o
+        return W_em_orthogonal_term + sigmoid_term * rearrange(o, 'b d -> b 1 d')
