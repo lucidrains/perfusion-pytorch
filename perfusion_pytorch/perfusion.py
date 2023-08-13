@@ -45,14 +45,7 @@ class Rank1EditModule(Module):
 
         self.input_decay = input_decay
 
-        # they exponentially smooth the text encoding inputs during training
-        # in addition to a lowered learning rate on the text encodings
-
         self.text_seq_len = text_seq_len
-
-        self.register_buffer('initted', torch.zeros(num_finetune_prompts).bool())
-        self.register_buffer('ema_concept_text_enc', torch.zeros(num_finetune_prompts, dim_input))
-        self.register_buffer('outputs', torch.zeros(num_finetune_prompts, text_seq_len, dim_output))
 
         # C in the paper, inverse precomputed
 
@@ -61,8 +54,8 @@ class Rank1EditModule(Module):
     @beartype
     def forward(
         self,
-        prompt_ids: Tensor,
         text_enc: Tensor,
+        text_enc_with_superclass: Tensor,
         concept_indices: Tensor
     ):
         assert text_enc.shape[-2] == self.text_seq_len, f'CLIP text sequence length is set to be {self.text_seq_len}, but received text encoding with length {text_enc.shape[-2]}'
@@ -78,7 +71,7 @@ class Rank1EditModule(Module):
         o - output dimension
         """
 
-        batch, device = text_enc.shape[0], self.initted.device
+        batch, device = text_enc.shape[0], self.C_inv.device
 
         weights, decay, Ci = self.weight, self.input_decay, self.C_inv
 
@@ -95,46 +88,22 @@ class Rank1EditModule(Module):
         concept_text_enc = text_enc[batch_indices, concept_indices]
         concept_text_enc = rearrange(concept_text_enc, 'b 1 d -> b d')
 
-        # during training, keep track of exponentially smoothed input
+        superclass_text_enc = text_enc_with_superclass[batch_indices, concept_indices]
+        superclass_text_enc = rearrange(superclass_text_enc, 'b 1 d -> b d')
 
-        if self.training:
+        # take care of initializing with superclass prompt
+        # for key-locking - this assumes stable diffusion was modified so text encoder takes in a prompt with both the <concept> as well as <superclass> - it seems this also has the limitation that <superclass> must be one token
 
-            # get the initialization state
-            # as well as the exponentially smoothed text encodings
+        text_enc_with_superclass_output = einsum('b n i, o i -> b n o', text_enc_with_superclass, weights)
 
-            initted = self.initted[prompt_ids]
-            all_initted = initted.all()
+        if self.is_key_proj:
+            text_enc_with_superclass_output = text_enc_with_superclass_output.detach()
 
-            ema_concept_text_enc = self.ema_concept_text_enc[prompt_ids]
-            outputs = self.outputs[prompt_ids]
-
-            # if any in the batch is not initialized, initialize
-
-            if not all_initted:
-                ema_concept_text_enc = torch.where(
-                    rearrange(initted, 'b -> b 1'),
-                    ema_concept_text_enc,
-                    concept_text_enc
-                )
-
-                outputs = torch.where(
-                    rearrange(initted, 'b -> b 1 1'),
-                    outputs,
-                    einsum('o i, b n i -> b n o', weights, text_enc)
-                )
-
-            # update using exponential moving average
-
-            concept_text_enc = ema_concept_text_enc * decay + concept_text_enc * (1. - decay)
-
-            if not all_initted:
-                self.initted[prompt_ids] = True
-                self.ema_concept_text_enc[prompt_ids] = ema_concept_text_enc
-                self.outputs[prompt_ids] = outputs
+        online_estimated_concept_enc = decay * superclass_text_enc + (1. - decay) * concept_text_enc
 
         # make it easier to match with paper
 
-        i, o, W = ema_concept_text_enc, outputs, weights
+        i, o, W = online_estimated_concept_enc, text_enc_with_superclass_output, weights
 
         # main contribution eq (3)
 
