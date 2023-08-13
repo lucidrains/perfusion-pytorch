@@ -3,7 +3,7 @@ from setuptools import setup, find_packages
 setup(
   name = 'perfusion-pytorch',
   packages = find_packages(exclude=[]),
-  version = '0.0.4',
+  version = '0.0.5',
   license='MIT',
   description = 'Perfusion - Pytorch',
   author = 'Phil Wang',
@@ -19,6 +19,7 @@ setup(
   install_requires=[
     'beartype',
     'einops>=0.6.1',
+    'opt-einsum',
     'torch>=2.0'
   ],
   classifiers=[

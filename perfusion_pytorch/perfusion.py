@@ -1,11 +1,14 @@
+from beartype import beartype
+from beartype.typing import Union
+
 import torch
 from torch import nn, einsum, Tensor, IntTensor, LongTensor, FloatTensor
 from torch.nn import Module
 import torch.nn.functional as F
 
-from beartype import beartype
-from beartype.typing import Union
 from einops import rearrange
+
+from opt_einsum import contract as opt_einsum
 
 # helpers
 
@@ -108,10 +111,10 @@ class Rank1EditModule(Module):
 
         # main contribution eq (3)
 
-        i_energy = einsum('b d, b d -> b', i @ Ci, i)
+        i_energy = opt_einsum('b o, o i, b i -> b', i, Ci, i)
         i_energy = rearrange(i_energy, '... -> ... 1 1')
 
-        sim = einsum('b n d, b d -> b n', text_enc, i @ Ci)
+        sim = opt_einsum('b n o, o i, b i -> b n', text_enc, Ci, i)
         sim = rearrange(sim, '... -> ... 1')
 
         sigmoid_term = (((sim / i_energy) - beta) / temperature).sigmoid()
