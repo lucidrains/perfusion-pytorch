@@ -116,11 +116,11 @@ class Rank1EditModule(Module):
 
         sigmoid_term = (((sim / i_energy) - beta) / temperature).sigmoid()
 
-        orig_output = einsum('b n i, o i -> b n o', text_enc, W)
+        text_enc_output = einsum('b n i, o i -> b n o', text_enc, W)
 
         concept_output = einsum('b i, o i -> b o', i, W)
         concept_output = rearrange(concept_output, 'b d -> b 1 d')
 
-        W_em_orthogonal_term = orig_output - (sim * concept_output / i_energy)
+        W_em_orthogonal_term = text_enc_output - (sim * concept_output / i_energy)
 
         return W_em_orthogonal_term + sigmoid_term * o
