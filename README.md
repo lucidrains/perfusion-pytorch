@@ -22,28 +22,33 @@ from torch import nn
 to_keys = nn.Linear(512, 1024, bias = False)
 to_values = nn.Linear(512, 1024, bias = False)
 
-C = torch.randn(512, 512)
+input_covariance = torch.randn(512, 512)
 
 wrapped_to_keys = Rank1EditModule(
     to_keys,
-    C = C,
+    C = input_covariance,
     is_key_proj = True,
     num_finetune_prompts = 32
 )
 
 wrapped_to_values = Rank1EditModule(
     to_values,
-    C = C,
+    C = input_covariance,
     num_finetune_prompts = 32
 )
 
 prompt_ids = torch.arange(4).long()
-text_enc = torch.randn(4, 1024, 512)
-concept_ids = torch.randint(0, 1024, (4,))
+text_enc = torch.randn(4, 256, 512)
+concept_ids = torch.randint(0, 256, (4,))
 
 keys = wrapped_to_keys(prompt_ids, text_enc, concept_ids)
 values = wrapped_to_values(prompt_ids, text_enc, concept_ids)
 ```
+
+## Todo
+
+- [ ] take care of the function that takes in the dataset and text encoder and precomputes the covariance matrix needed for the rank-1 update
+- [ ] instead of having the researcher worry about different learning rates, offer the fractional gradient trick from other paper (to learn the concept embedding)
 
 ## Citations
 

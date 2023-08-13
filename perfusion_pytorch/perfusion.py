@@ -11,7 +11,6 @@ from einops import rearrange
 def exists(val):
     return val is not None
 
-# main contribution of paper
 # a module that wraps the keys and values projection of the cross attentions to text encodings
 
 class Rank1EditModule(Module):
@@ -22,7 +21,8 @@ class Rank1EditModule(Module):
         key_or_values_proj: nn.Linear,
         *,
         num_finetune_prompts: int,
-        C: Tensor,
+        C: Tensor,                  # covariance of input, precomputed from 100K laion text
+        text_seq_len: int = 256,
         is_key_proj: bool = False,
         input_decay = 0.99,
         train_beta = 0.75,
@@ -34,7 +34,7 @@ class Rank1EditModule(Module):
         assert not exists(key_or_values_proj.bias), 'key value projection in attention should not have bias'
 
         self.weight = key_or_values_proj.weight
-        dim_input = self.weight.shape[-1]
+        dim_output, dim_input = self.weight.shape
 
         self.is_key_proj = is_key_proj # will lock the output to the super-class, and turn off gradients
 
@@ -48,10 +48,13 @@ class Rank1EditModule(Module):
         # they exponentially smooth the text encoding inputs during training
         # in addition to a lowered learning rate on the text encodings
 
+        self.text_seq_len = text_seq_len
+
         self.register_buffer('initted', torch.zeros(num_finetune_prompts).bool())
         self.register_buffer('ema_concept_text_enc', torch.zeros(num_finetune_prompts, dim_input))
+        self.register_buffer('outputs', torch.zeros(num_finetune_prompts, text_seq_len, dim_output))
 
-        # buffers
+        # C in the paper, inverse precomputed
 
         self.register_buffer('C_inv', torch.inverse(C))
 
@@ -62,13 +65,22 @@ class Rank1EditModule(Module):
         text_enc: Tensor,
         concept_indices: Tensor
     ):
+        assert text_enc.shape[-2] == self.text_seq_len, f'CLIP text sequence length is set to be {self.text_seq_len}, but received text encoding with length {text_enc.shape[-2]}'
+
         """
         following the pseudocode of Algorithm 1 in appendix
+
+        einstein notation:
+        b - batch
+        n - sequence
+        d - feature dimension
+        i - input dimension
+        o - output dimension
         """
 
         batch, device = text_enc.shape[0], self.initted.device
 
-        weights, decay = self.weight, self.input_decay
+        weights, decay, Ci = self.weight, self.input_decay, self.C_inv
 
         # beta and temperature depends on whether training or inference
 
@@ -86,20 +98,59 @@ class Rank1EditModule(Module):
         # during training, keep track of exponentially smoothed input
 
         if self.training:
-            batch_initted = self.initted[prompt_ids]
-            ema_concept_text_enc = self.ema_concept_text_enc[prompt_ids]
 
-            ema_concept_text_enc = torch.where(
-                rearrange(batch_initted, 'b -> b 1'),
-                ema_concept_text_enc,
-                concept_text_enc
-            )
+            # get the initialization state
+            # as well as the exponentially smoothed text encodings
+
+            initted = self.initted[prompt_ids]
+            all_initted = initted.all()
+
+            ema_concept_text_enc = self.ema_concept_text_enc[prompt_ids]
+            outputs = self.outputs[prompt_ids]
+
+            # if any in the batch is not initialized, initialize
+
+            if not all_initted:
+                ema_concept_text_enc = torch.where(
+                    rearrange(initted, 'b -> b 1'),
+                    ema_concept_text_enc,
+                    concept_text_enc
+                )
+
+                outputs = torch.where(
+                    rearrange(initted, 'b -> b 1 1'),
+                    outputs,
+                    einsum('o i, b n i -> b n o', weights, text_enc)
+                )
 
             # update using exponential moving average
 
             concept_text_enc = ema_concept_text_enc * decay + concept_text_enc * (1. - decay)
 
-            self.initted[prompt_ids] = True
-            self.ema_concept_text_enc[prompt_ids] = concept_text_enc
+            if not all_initted:
+                self.initted[prompt_ids] = True
+                self.ema_concept_text_enc[prompt_ids] = ema_concept_text_enc
+                self.outputs[prompt_ids] = outputs
 
-        return einsum('b n i, o i -> b n o', text_enc, weights)
+        # make it easier to match with paper
+
+        i, o, W = ema_concept_text_enc, outputs, weights
+
+        # main contribution eq (3)
+
+        i_energy = einsum('b d, b d -> b', i @ Ci, i)
+        i_energy = rearrange(i_energy, '... -> ... 1 1')
+
+        sim = einsum('b n d, b d -> b n', text_enc, i @ Ci)
+        sim = rearrange(sim, '... -> ... 1')
+
+        sigmoid_term = (((sim / i_energy) - beta) / temperature).sigmoid()
+
+        orig_output = einsum('b n i, o i -> b n o', text_enc, W)
+
+        concept_output = einsum('b i, o i -> b o', i, W)
+        concept_output = rearrange(concept_output, 'b d -> b 1 d')
+
+        W_em_orthogonal_term = orig_output - (sim * concept_output / i_energy)
+
+        return W_em_orthogonal_term + sigmoid_term * o
