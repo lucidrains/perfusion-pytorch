@@ -41,12 +41,13 @@ wrapped_to_values = Rank1EditModule(
     num_finetune_prompts = 32
 )
 
-prompt_ids = torch.arange(4).long()
-text_enc = torch.randn(4, 256, 512)
+text_enc = torch.randn(4, 256, 512)                  # regular input
+text_enc_with_superclass = torch.randn(4, 256, 512)  # init_input in algorithm 1, for key-locking
 concept_ids = torch.randint(0, 256, (4,))
 
-keys = wrapped_to_keys(prompt_ids, text_enc, concept_ids)
-values = wrapped_to_values(prompt_ids, text_enc, concept_ids)
+
+keys = wrapped_to_keys(text_enc, text_enc_with_superclass, concept_ids)
+values = wrapped_to_values(text_enc, text_enc_with_superclass, concept_ids)
 ```
 
 ## Todo
