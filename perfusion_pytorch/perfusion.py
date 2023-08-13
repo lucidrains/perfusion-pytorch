@@ -1,9 +1,10 @@
 import torch
-from torch import nn, einsum, Tensor
+from torch import nn, einsum, Tensor, IntTensor, LongTensor, FloatTensor
 from torch.nn import Module
 import torch.nn.functional as F
 
 from beartype import beartype
+from beartype.typing import Union
 from einops import rearrange
 
 # helpers
@@ -54,9 +55,9 @@ class Rank1EditModule(Module):
     @beartype
     def forward(
         self,
-        text_enc: Tensor,
-        text_enc_with_superclass: Tensor,
-        concept_indices: Tensor
+        text_enc: FloatTensor,
+        text_enc_with_superclass: FloatTensor,
+        concept_indices: Union[IntTensor, LongTensor]
     ):
         assert text_enc.shape[-2] == self.text_seq_len, f'CLIP text sequence length is set to be {self.text_seq_len}, but received text encoding with length {text_enc.shape[-2]}'
 
