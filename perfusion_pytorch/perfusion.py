@@ -57,14 +57,15 @@ class Rank1EditModule(Module):
         key_or_values_proj: nn.Linear,
         *,
         num_finetune_prompts: int,
-        C: Tensor,                  # covariance of input, precomputed from 100K laion text
+        C: Tensor,                         # covariance of input, precomputed from 100K laion text
         text_seq_len: int = 77,
         is_key_proj: bool = False,
         input_decay = 0.99,
         train_beta = 0.75,
         train_temperature = 0.1,
-        eval_beta = 0.70,           # in paper, specified a range (0.6 - 0.75) for local-key lock, and (0.4 -0.6) for global-key lock
-        eval_temperature = 0.15
+        eval_beta = 0.70,                  # in paper, specified a range (0.6 - 0.75) for local-key lock, and (0.4 -0.6) for global-key lock
+        eval_temperature = 0.15,
+        frac_gradient_concept_embed = 0.1  # they use a slower learning rate for the embed - this can be achieved by a trick to reduce the gradients going backwards through an operation
     ):
         super().__init__()
         assert not exists(key_or_values_proj.bias), 'key value projection in attention should not have bias'
@@ -80,6 +81,11 @@ class Rank1EditModule(Module):
         self.input_decay = input_decay
 
         self.text_seq_len = text_seq_len
+
+        # for the lowered learning rate on the concept embed (0.006 vs 0.03 or something)
+
+        assert 0 < frac_gradient_concept_embed <= 1.
+        self.frac_gradient_concept_embed = frac_gradient_concept_embed
 
         # for exponentially smoothing the inputs
         # will smooth both concept and superclass token inputs
@@ -128,6 +134,10 @@ class Rank1EditModule(Module):
         batch, device = text_enc.shape[0], self.C_inv.device
 
         weights, decay, Ci = self.weight, self.input_decay, self.C_inv
+
+        # reduce learning rate going back to the text encoder and into the concept embed
+
+        text_enc = text_enc * self.frac_gradient_concept_embed + text_enc.detach() * (1 - self.frac_gradient_concept_embed)
 
         # beta and temperature depends on whether training or inference
 
