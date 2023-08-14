@@ -41,12 +41,39 @@ wrapped_to_values = Rank1EditModule(
     num_finetune_prompts = 32
 )
 
+prompt_ids = torch.arange(4).long()                 # id of each training prompt, so that it can automatically keep track of the EMA
 text_enc = torch.randn(4, 77, 768)                  # regular input
 text_enc_with_superclass = torch.randn(4, 77, 768)  # init_input in algorithm 1, for key-locking
 concept_ids = torch.randint(0, 77, (4,))
 
-keys = wrapped_to_keys(text_enc, text_enc_with_superclass, concept_ids)
-values = wrapped_to_values(text_enc, text_enc_with_superclass, concept_ids)
+keys = wrapped_to_keys(
+    text_enc,
+    text_enc_with_superclass,
+    concept_ids,
+    prompt_ids = prompt_ids
+)
+
+values = wrapped_to_values(
+    text_enc,
+    text_enc_with_superclass,
+    concept_ids,
+    prompt_ids = prompt_ids
+)
+
+# after much training ...
+# simply omit the prompt ids
+
+keys = wrapped_to_keys(
+    text_enc,
+    text_enc_with_superclass,
+    concept_ids
+)
+
+values = wrapped_to_values(
+    text_enc,
+    text_enc_with_superclass,
+    concept_ids
+)
 ```
 
 ## Todo
