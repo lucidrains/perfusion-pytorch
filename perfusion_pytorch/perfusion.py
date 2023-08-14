@@ -72,8 +72,6 @@ class Rank1EditModule(Module):
         self.weight = key_or_values_proj.weight
         dim_output, dim_input = self.weight.shape
 
-        self.is_key_proj = is_key_proj # will lock the output to the super-class, and turn off gradients
-
         self.train_beta = train_beta
         self.train_temperature = train_temperature
         self.eval_beta = eval_beta
@@ -88,12 +86,22 @@ class Rank1EditModule(Module):
 
         self.register_buffer('initted', torch.zeros(num_finetune_prompts).bool())
         self.register_buffer('ema_concept_text_encs', torch.zeros(num_finetune_prompts, dim_input))
-        self.register_buffer('superclass_text_encs', torch.zeros(num_finetune_prompts, dim_input))
-        self.register_buffer('superclass_outputs', torch.zeros(num_finetune_prompts, dim_output))
+
+        # superclass outputs - only optimized for values, but not keys
+
+        self.is_key_proj = is_key_proj # will lock the output to the super-class, and turn off gradients
+
+        self.superclass_outputs = nn.Parameter(torch.zeros(num_finetune_prompts, dim_output), requires_grad = not is_key_proj)
 
         # C in the paper, inverse precomputed
 
         self.register_buffer('C_inv', torch.inverse(C))
+
+    def parameters(self):
+        if not self.is_key_proj:
+            return []
+
+        return [self.superclass_outputs]
 
     @beartype
     def forward(
@@ -134,57 +142,44 @@ class Rank1EditModule(Module):
         concept_text_enc = text_enc[batch_indices, concept_indices]
         concept_text_enc = rearrange(concept_text_enc, 'b 1 d -> b d')
 
-        # take care of initializing with superclass prompt
-        # for key-locking - this assumes stable diffusion was modified so text encoder takes in a prompt with both the <concept> as well as <superclass> - it seems this also has the limitation that <superclass> must be one token
-
-        superclass_text_enc = text_enc_with_superclass[batch_indices, concept_indices]
-        superclass_text_enc = rearrange(superclass_text_enc, 'b 1 d -> b d')
-
-        superclass_output = einsum('b i, o i -> b o', superclass_text_enc, weights)
-
         # only if training, and if prompt ids are given
         # do exponential smoothing of the inputs, both concept and superclass
+
+        if exists(text_enc_with_superclass):
+            superclass_text_enc = text_enc_with_superclass[batch_indices, concept_indices]
+            superclass_text_enc = rearrange(superclass_text_enc, 'b 1 d -> b d')
+
+            superclass_output = einsum('b i, o i -> b o', superclass_text_enc, weights)
 
         if self.training and exists(prompt_ids):
             # get the initialization state
             # as well as the exponentially smoothed text encodings
 
             initted = self.initted[prompt_ids]
-            initted = rearrange(initted, 'b -> b 1')
             all_initted = initted.all()
 
             ema_concept_text_enc = self.ema_concept_text_encs[prompt_ids]
 
-            # fetch superclass
+            # store the superclass i* if not all initialized
+            # else fetch it from the buffer
 
-            assert exists(superclass_text_enc) or all_initted
+            if not all_initted:
+                assert exists(superclass_output), 'text_enc_with_superclass must be passed in for the first epoch for all prompts to initialize the module correctly'
 
-            stored_superclass_text_enc = self.superclass_text_encs[prompt_ids]
+                non_initted_prompt_ids = prompt_ids[~initted]
 
-            # for keys, the superclass output (o*) is stored on init
-            # and never optimized
+                # for the prompt ids not initialized yet, hard copy over the initial superclass outputs
+                self.superclass_outputs[non_initted_prompt_ids].data.copy_(superclass_output)
 
-            stored_superclass_output = self.superclass_outputs[prompt_ids]
+            superclass_output = self.superclass_outputs[prompt_ids]
 
             # if any in the batch is not initialized, initialize
 
             if not all_initted:
                 ema_concept_text_enc = torch.where(
-                    initted,
+                    rearrange(initted, 'b -> b 1'),
                     ema_concept_text_enc,
                     concept_text_enc
-                )
-
-                superclass_text_enc = torch.where(
-                    initted,
-                    stored_superclass_text_enc,
-                    superclass_text_enc
-                )
-
-                superclass_output = torch.where(
-                    initted,
-                    stored_superclass_output,
-                    superclass_output
                 )
 
             # exponential moving average for concept input encoding
@@ -196,8 +191,6 @@ class Rank1EditModule(Module):
             if not all_initted:
                 self.initted[prompt_ids] = True
                 self.ema_concept_text_encs[prompt_ids] = ema_concept_text_enc
-                self.superclass_text_encs[prompt_ids] = superclass_text_enc
-                self.superclass_outputs[prompt_ids] = superclass_output
 
         # take care of the output
         # for the keys, make sure to turn off gradients as it is 'locked'
