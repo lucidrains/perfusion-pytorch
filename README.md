@@ -10,6 +10,8 @@ It seems they successfully applied the Rank-1 editing technique from a <a href="
 
 - <a href="https://stability.ai/">StabilityAI</a> for the generous sponsorship, as well as my other sponsors out there
 
+- All the maintainers at <a href="https://github.com/mlfoundations/open_clip">OpenClip</a>, for their SOTA open sourced contrastive learning text-image models
+
 ## Install
 
 ```bash

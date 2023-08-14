@@ -1,8 +1,9 @@
+from math import ceil
 from beartype import beartype
-from beartype.typing import Union
+from beartype.typing import Union, List, Optional
 
 import torch
-from torch import nn, einsum, Tensor, IntTensor, LongTensor, FloatTensor, Optional
+from torch import nn, einsum, Tensor, IntTensor, LongTensor, FloatTensor
 from torch.nn import Module
 import torch.nn.functional as F
 
@@ -10,12 +11,41 @@ from einops import rearrange
 
 from opt_einsum import contract as opt_einsum
 
+from perfusion_pytorch.open_clip import OpenClipAdapter
+
 # helpers
 
 def exists(val):
     return val is not None
 
 IndicesTensor = Union[LongTensor, IntTensor]
+
+# function for calculating C - input covariance
+
+@beartype
+@torch.no_grad()
+def calculate_input_covariance(
+    open_clip: OpenClipAdapter,
+    texts: List[str],
+    batch_size = 32,
+    **cov_kwargs
+):
+    embeds, mask = open_clip.embed_texts(texts)
+
+    num_batches = ceil(len(texts) / batch_size)
+
+    all_embeds = []
+
+    for batch_ind in range(num_batches):
+        start_index = batch_ind * batch_size
+        batch_texts = texts[start_index:(start_index + batch_size)]
+
+        embeds, mask = open_clip.embed_texts(batch_texts)
+        all_embeds.append(embeds[mask])
+
+    all_embeds = torch.cat((all_embeds), dim = 0)
+    all_embeds = rearrange(all_embeds, 'n d -> d n')
+    return torch.cov(all_embeds, **cov_kwargs)
 
 # a module that wraps the keys and values projection of the cross attentions to text encodings
 
