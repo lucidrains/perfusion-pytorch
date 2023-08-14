@@ -88,7 +88,7 @@ class Rank1EditModule(Module):
 
         self.register_buffer('initted', torch.zeros(num_finetune_prompts).bool())
         self.register_buffer('ema_concept_text_encs', torch.zeros(num_finetune_prompts, dim_input))
-        self.register_buffer('ema_superclass_text_encs', torch.zeros(num_finetune_prompts, dim_input))
+        self.register_buffer('superclass_text_encs', torch.zeros(num_finetune_prompts, dim_input))
         self.register_buffer('superclass_outputs', torch.zeros(num_finetune_prompts, dim_output))
 
         # C in the paper, inverse precomputed
@@ -154,7 +154,12 @@ class Rank1EditModule(Module):
             all_initted = initted.all()
 
             ema_concept_text_enc = self.ema_concept_text_encs[prompt_ids]
-            ema_superclass_text_enc = self.ema_superclass_text_encs[prompt_ids]
+
+            # fetch superclass
+
+            assert exists(superclass_text_enc) or all_initted
+
+            stored_superclass_text_enc = self.superclass_text_encs[prompt_ids]
 
             # for keys, the superclass output (o*) is stored on init
             # and never optimized
@@ -170,9 +175,9 @@ class Rank1EditModule(Module):
                     concept_text_enc
                 )
 
-                ema_superclass_text_enc = torch.where(
+                superclass_text_enc = torch.where(
                     initted,
-                    ema_superclass_text_enc,
+                    stored_superclass_text_enc,
                     superclass_text_enc
                 )
 
@@ -182,17 +187,16 @@ class Rank1EditModule(Module):
                     superclass_output
                 )
 
-            # exponential moving average of both concept and superclass
+            # exponential moving average for concept input encoding
 
             concept_text_enc = ema_concept_text_enc * decay + concept_text_enc * (1. - decay)
-            superclass_text_enc = ema_superclass_text_enc * decay + superclass_text_enc * (1. - decay)
 
             # store
 
             if not all_initted:
                 self.initted[prompt_ids] = True
                 self.ema_concept_text_encs[prompt_ids] = ema_concept_text_enc
-                self.ema_superclass_text_encs[prompt_ids] = ema_superclass_text_enc
+                self.superclass_text_encs[prompt_ids] = superclass_text_enc
                 self.superclass_outputs[prompt_ids] = superclass_output
 
         # take care of the output
