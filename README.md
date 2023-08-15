@@ -22,8 +22,9 @@ $ pip install perfusion-pytorch
 
 ```python
 import torch
-from perfusion_pytorch import Rank1EditModule
 from torch import nn
+
+from perfusion_pytorch import Rank1EditModule
 
 to_keys = nn.Linear(768, 320, bias = False)
 to_values = nn.Linear(768, 320, bias = False)
@@ -33,17 +34,14 @@ input_covariance = torch.randn(768, 768)
 wrapped_to_keys = Rank1EditModule(
     to_keys,
     C = input_covariance,
-    is_key_proj = True,
-    num_finetune_prompts = 32
+    is_key_proj = True
 )
 
 wrapped_to_values = Rank1EditModule(
     to_values,
-    C = input_covariance,
-    num_finetune_prompts = 32
+    C = input_covariance
 )
 
-prompt_ids = torch.arange(4).long()                 # id of each training prompt, so that it can automatically keep track of the EMA
 text_enc = torch.randn(4, 77, 768)                  # regular input
 text_enc_with_superclass = torch.randn(4, 77, 768)  # init_input in algorithm 1, for key-locking
 concept_ids = torch.randint(0, 77, (4,))
@@ -51,19 +49,19 @@ concept_ids = torch.randint(0, 77, (4,))
 keys = wrapped_to_keys(
     text_enc,
     text_enc_with_superclass,
-    concept_ids,
-    prompt_ids = prompt_ids
+    concept_ids
 )
 
 values = wrapped_to_values(
     text_enc,
     text_enc_with_superclass,
-    concept_ids,
-    prompt_ids = prompt_ids
+    concept_ids
 )
 
 # after much training ...
-# simply omit the prompt ids
+
+wrapped_to_keys.eval()
+wrapped_to_values.eval()
 
 keys = wrapped_to_keys(
     text_enc,
@@ -79,6 +77,8 @@ values = wrapped_to_values(
 ```
 
 ## Todo
+
+- [ ] handle rank-1 update for multiple concepts
 
 - [x] take care of the function that takes in the dataset and text encoder and precomputes the covariance matrix needed for the rank-1 update
 - [x] instead of having the researcher worry about different learning rates, offer the fractional gradient trick from other paper (to learn the concept embedding)

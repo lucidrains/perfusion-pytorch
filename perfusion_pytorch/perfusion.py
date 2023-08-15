@@ -7,7 +7,7 @@ from torch import nn, einsum, Tensor, IntTensor, LongTensor, FloatTensor
 from torch.nn import Module
 import torch.nn.functional as F
 
-from einops import rearrange
+from einops import rearrange, reduce
 
 from opt_einsum import contract as opt_einsum
 
@@ -45,7 +45,8 @@ def calculate_input_covariance(
 
     all_embeds = torch.cat((all_embeds), dim = 0)
     all_embeds = rearrange(all_embeds, 'n d -> d n')
-    return torch.cov(all_embeds, **cov_kwargs)
+
+    return torch.cov(all_embeds, correction = 0, **cov_kwargs)
 
 # a module that wraps the keys and values projection of the cross attentions to text encodings
 
@@ -56,7 +57,6 @@ class Rank1EditModule(Module):
         self,
         key_or_values_proj: nn.Linear,
         *,
-        num_finetune_prompts: int,
         C: Tensor,                         # covariance of input, precomputed from 100K laion text
         text_seq_len: int = 77,
         is_key_proj: bool = False,
@@ -90,14 +90,14 @@ class Rank1EditModule(Module):
         # for exponentially smoothing the inputs
         # will smooth both concept and superclass token inputs
 
-        self.register_buffer('initted', torch.zeros(num_finetune_prompts).bool())
-        self.register_buffer('ema_concept_text_encs', torch.zeros(num_finetune_prompts, dim_input))
+        self.register_buffer('initted', Tensor([False]))
+        self.register_buffer('ema_concept_text_encs', torch.zeros(dim_input))
 
         # superclass outputs - only optimized for values, but not keys
 
         self.is_key_proj = is_key_proj # will lock the output to the super-class, and turn off gradients
 
-        self.superclass_outputs = nn.Parameter(torch.zeros(num_finetune_prompts, dim_output), requires_grad = not is_key_proj)
+        self.superclass_outputs = nn.Parameter(torch.zeros(dim_output), requires_grad = not is_key_proj)
 
         # C in the paper, inverse precomputed
 
@@ -150,47 +150,42 @@ class Rank1EditModule(Module):
         concept_indices = rearrange(concept_indices, 'b -> b 1')
 
         concept_text_enc = text_enc[batch_indices, concept_indices]
-        concept_text_enc = rearrange(concept_text_enc, 'b 1 d -> b d')
+        concept_text_enc = reduce(concept_text_enc, 'b 1 d -> d', 'mean')
 
-        # only if training, and if prompt ids are given
+        # only if training
         # do exponential smoothing of the inputs, both concept and superclass
 
         if exists(text_enc_with_superclass):
             superclass_text_enc = text_enc_with_superclass[batch_indices, concept_indices]
-            superclass_text_enc = rearrange(superclass_text_enc, 'b 1 d -> b d')
+            superclass_text_enc = reduce(superclass_text_enc, 'b 1 d -> d', 'mean')
 
-            superclass_output = einsum('b i, o i -> b o', superclass_text_enc, weights)
+            superclass_output = einsum('i, o i -> o', superclass_text_enc, weights)
 
         if self.training and exists(prompt_ids):
             # get the initialization state
             # as well as the exponentially smoothed text encodings
 
-            initted = self.initted[prompt_ids]
-            all_initted = initted.all()
+            initted = self.initted.item()
 
             ema_concept_text_enc = self.ema_concept_text_encs[prompt_ids]
 
             # store the superclass i* if not all initialized
             # else fetch it from the buffer
 
-            if not all_initted:
+            if not initted:
                 assert exists(superclass_output), 'text_enc_with_superclass must be passed in for the first epoch for all prompts to initialize the module correctly'
 
                 non_initted_prompt_ids = prompt_ids[~initted]
 
                 # for the prompt ids not initialized yet, hard copy over the initial superclass outputs
-                self.superclass_outputs[non_initted_prompt_ids].data.copy_(superclass_output)
+                self.superclass_outputs.data.copy_(superclass_output)
 
-            superclass_output = self.superclass_outputs[prompt_ids]
+            superclass_output = self.superclass_outputs
 
             # if any in the batch is not initialized, initialize
 
-            if not all_initted:
-                ema_concept_text_enc = torch.where(
-                    rearrange(initted, 'b -> b 1'),
-                    ema_concept_text_enc,
-                    concept_text_enc
-                )
+            if not initted:
+                ema_concept_text_enc = concept_text_enc
 
             # exponential moving average for concept input encoding
 
@@ -198,9 +193,9 @@ class Rank1EditModule(Module):
 
             # store
 
-            if not all_initted:
-                self.initted[prompt_ids] = True
-                self.ema_concept_text_encs[prompt_ids] = ema_concept_text_enc
+            if not initted:
+                self.initted.data.copy_(Tensor([True]))
+                self.ema_concept_text_encs.data.copy_(ema_concept_text_enc)
 
         # take care of the output
         # for the keys, make sure to turn off gradients as it is 'locked'
@@ -214,19 +209,18 @@ class Rank1EditModule(Module):
 
         # main contribution eq (3)
 
-        i_energy = opt_einsum('b o, o i, b i -> b', i, Ci, i)
-        i_energy = rearrange(i_energy, '... -> ... 1 1')
+        i_energy = opt_einsum('o, o i, i ->', i, Ci, i)
 
-        sim = opt_einsum('b n o, o i, b i -> b n', text_enc, Ci, i)
+        sim = opt_einsum('b n o, o i, i -> b n', text_enc, Ci, i)
         sim = rearrange(sim, '... -> ... 1')
 
         sigmoid_term = (((sim / i_energy) - beta) / temperature).sigmoid()
 
         text_enc_output = einsum('b n i, o i -> b n o', text_enc, W)
 
-        concept_output = einsum('b i, o i -> b o', i, W)
-        concept_output = rearrange(concept_output, 'b d -> b 1 d')
+        concept_output = einsum('i, o i -> o', i, W)
+        concept_output = rearrange(concept_output, 'd -> 1 1 d')
 
         W_em_orthogonal_term = text_enc_output - (sim * concept_output / i_energy)
 
-        return W_em_orthogonal_term + sigmoid_term * rearrange(o, 'b d -> b 1 d')
+        return W_em_orthogonal_term + sigmoid_term * rearrange(o, 'd -> 1 1 d')
