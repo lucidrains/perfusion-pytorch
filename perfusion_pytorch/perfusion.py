@@ -90,6 +90,7 @@ class Rank1EditModule(Module):
         self,
         key_or_values_proj: nn.Linear,
         *,
+        num_concepts: int = 1,
         C: Tensor,                         # covariance of input, precomputed from 100K laion text
         text_seq_len: int = 77,
         is_key_proj: bool = False,
@@ -102,6 +103,8 @@ class Rank1EditModule(Module):
     ):
         super().__init__()
         assert not exists(key_or_values_proj.bias), 'key value projection in attention should not have bias'
+
+        self.num_concepts = num_concepts
 
         self.weight = key_or_values_proj.weight
         dim_output, dim_input = self.weight.shape
@@ -123,14 +126,14 @@ class Rank1EditModule(Module):
         # for exponentially smoothing the inputs
         # will smooth both concept and superclass token inputs
 
-        self.register_buffer('initted', Tensor([False]))
-        self.register_buffer('ema_concept_text_encs', torch.zeros(dim_input))
+        self.register_buffer('initted', torch.zeros(num_concepts, 1).bool())
+        self.register_buffer('ema_concept_text_encs', torch.zeros(num_concepts, dim_input))
 
         # superclass outputs - only optimized for values, but not keys
 
         self.is_key_proj = is_key_proj # will lock the output to the super-class, and turn off gradients
 
-        self.superclass_output = nn.Parameter(torch.zeros(dim_output), requires_grad = not is_key_proj)
+        self.superclass_output = nn.Parameter(torch.zeros(num_concepts, dim_output), requires_grad = not is_key_proj)
 
         # C in the paper, inverse precomputed
 
@@ -147,7 +150,8 @@ class Rank1EditModule(Module):
         self,
         text_enc: FloatTensor,
         concept_indices: IndicesTensor,
-        text_enc_with_superclass: Optional[FloatTensor] = None
+        text_enc_with_superclass: Optional[FloatTensor] = None,
+        concept_id: int = 0
     ):
         assert text_enc.shape[-2] == self.text_seq_len, f'CLIP text sequence length is set to be {self.text_seq_len}, but received text encoding with length {text_enc.shape[-2]}'
 
@@ -194,7 +198,9 @@ class Rank1EditModule(Module):
 
         # get the initialization state
 
-        initted = self.initted.item()
+        assert concept_id < self.num_concepts
+
+        initted = self.initted[concept_id].item()
 
         if self.training:
             # store the superclass i* if not all initialized
@@ -204,21 +210,21 @@ class Rank1EditModule(Module):
                 assert exists(superclass_output), 'text_enc_with_superclass must be passed in for the first batch'
 
                 # for the prompt ids not initialized yet, hard copy over the initial superclass outputs
-                self.superclass_output.data.copy_(superclass_output)
+                self.superclass_output[concept_id].data.copy_(superclass_output)
 
             elif exists(superclass_output):
                 # if text enc with superclass is passed in for more than 1 batch
                 # just take the opportunity to exponentially average it a bit more
 
                 ema_superclass_output = self.superclass_output * decay + superclass_output * (1. - decay)
-                self.superclass_output.data.copy_(ema_superclass_output)
+                self.superclass_output[concept_id].data.copy_(ema_superclass_output)
 
             # if any in the batch is not initialized, initialize
 
             if not initted:
                 ema_concept_text_enc = concept_text_enc
             else:
-                ema_concept_text_enc = self.ema_concept_text_enc
+                ema_concept_text_enc = self.ema_concept_text_enc[concept_id]
 
             # exponential moving average for concept input encoding
 
@@ -227,14 +233,14 @@ class Rank1EditModule(Module):
             # store
 
             if not initted:
-                self.initted.data.copy_(Tensor([True]))
-                self.ema_concept_text_encs.data.copy_(ema_concept_text_enc)
+                self.initted[concept_id].data.copy_(Tensor([True]))
+                self.ema_concept_text_encs[concept_id].data.copy_(ema_concept_text_enc)
         else:
             assert initted, 'you have not initialized or trained this module yet'
 
         # make it easier to match with paper
 
-        i, o, W = concept_text_enc, self.superclass_output, weights
+        i, o, W = concept_text_enc, self.superclass_output[concept_id], weights
 
         # main contribution eq (3)
 

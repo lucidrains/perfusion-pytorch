@@ -78,7 +78,9 @@ values = wrapped_to_values(
 
 ## Todo
 
-- [ ] handle rank-1 update for multiple concepts
+- [] handle rank-1 update for multiple concepts
+    - [x] handle training with multiple concepts
+    - [ ] handle multiple concepts in one prompt at inference - summation of the sigmoid term + outputs
 
 - [x] take care of the function that takes in the dataset and text encoder and precomputes the covariance matrix needed for the rank-1 update
 - [x] instead of having the researcher worry about different learning rates, offer the fractional gradient trick from other paper (to learn the concept embedding)
