@@ -25,12 +25,12 @@ IndicesTensor = Union[LongTensor, IntTensor]
 @beartype
 @torch.no_grad()
 def calculate_input_covariance(
-    open_clip: OpenClipAdapter,
+    clip: OpenClipAdapter,
     texts: List[str],
     batch_size = 32,
     **cov_kwargs
 ):
-    embeds, mask = open_clip.embed_texts(texts)
+    embeds, mask = clip.embed_texts(texts)
 
     num_batches = ceil(len(texts) / batch_size)
 
@@ -42,12 +42,44 @@ def calculate_input_covariance(
         start_index = batch_ind * batch_size
         batch_texts = texts[start_index:(start_index + batch_size)]
 
-        embeds, mask = open_clip.embed_texts(batch_texts)
+        embeds, mask = clip.embed_texts(batch_texts)
         all_embeds.append(embeds[mask])
 
-    all_embeds = torch.cat((all_embeds), dim = 0)
+    all_embeds = torch.cat(all_embeds, dim = 0)
 
     return einsum('n d, n e -> d e', all_embeds, all_embeds) / length
+
+@beartype
+def find_first_index(
+    indices: IndicesTensor,
+    concept_or_superclass_id: int
+):
+    """
+    for deriving the concept_indices to be passed into the Rank1EditModule
+    """
+
+    edge = (indices == concept_or_superclass_id).cumsum(dim = -1)  # [1, 3, 5, 4, 1, 1], 4 -> [0, 0, 0, 1, 0, 0, 0] -> [0, 0, 0, 1, 1, 1]
+    return edge.sum(dim = -1)
+
+@beartype
+def return_text_enc_with_concept_and_superclass(
+    text_ids: IndicesTensor,
+    concept_id: int,
+    superclass_id: int,
+    clip: Optional[OpenClipAdapter] = None
+):
+    batch = text_ids.shape[0]
+    batch_arange = torch.arange(batch, device = text_ids.device)
+    concept_indices = find_first_index(text_ids, concept_id)
+    text_ids_with_superclass = text_ids[batch_arange, concept_indices] = superclass_ids
+
+    if not exists(clip):
+        return text_ids, concept_indices, text_ids_with_superclass
+
+    concept_text_enc = clip.embed_texts(text_ids)
+    superclass_text_enc = clip.embed_texts(text_ids_with_superclass)
+
+    return concept_text_enc, concept_indices, superclass_text_enc
 
 # a module that wraps the keys and values projection of the cross attentions to text encodings
 
