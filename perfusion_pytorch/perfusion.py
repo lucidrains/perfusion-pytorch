@@ -97,7 +97,7 @@ class Rank1EditModule(Module):
 
         self.is_key_proj = is_key_proj # will lock the output to the super-class, and turn off gradients
 
-        self.superclass_outputs = nn.Parameter(torch.zeros(dim_output), requires_grad = not is_key_proj)
+        self.superclass_output = nn.Parameter(torch.zeros(dim_output), requires_grad = not is_key_proj)
 
         # C in the paper, inverse precomputed
 
@@ -113,10 +113,8 @@ class Rank1EditModule(Module):
     def forward(
         self,
         text_enc: FloatTensor,
-        text_enc_with_superclass: FloatTensor,
         concept_indices: IndicesTensor,
-        *,
-        prompt_ids: Optional[IndicesTensor] = None
+        text_enc_with_superclass: Optional[FloatTensor] = None
     ):
         assert text_enc.shape[-2] == self.text_seq_len, f'CLIP text sequence length is set to be {self.text_seq_len}, but received text encoding with length {text_enc.shape[-2]}'
 
@@ -161,31 +159,26 @@ class Rank1EditModule(Module):
 
             superclass_output = einsum('i, o i -> o', superclass_text_enc, weights)
 
-        if self.training and exists(prompt_ids):
-            # get the initialization state
-            # as well as the exponentially smoothed text encodings
+        # get the initialization state
 
-            initted = self.initted.item()
+        initted = self.initted.item()
 
-            ema_concept_text_enc = self.ema_concept_text_encs[prompt_ids]
-
+        if self.training:
             # store the superclass i* if not all initialized
             # else fetch it from the buffer
 
             if not initted:
-                assert exists(superclass_output), 'text_enc_with_superclass must be passed in for the first epoch for all prompts to initialize the module correctly'
-
-                non_initted_prompt_ids = prompt_ids[~initted]
+                assert exists(superclass_output), 'text_enc_with_superclass must be passed in for the first batch'
 
                 # for the prompt ids not initialized yet, hard copy over the initial superclass outputs
-                self.superclass_outputs.data.copy_(superclass_output)
-
-            superclass_output = self.superclass_outputs
+                self.superclass_output.data.copy_(superclass_output)
 
             # if any in the batch is not initialized, initialize
 
             if not initted:
                 ema_concept_text_enc = concept_text_enc
+            else:
+                ema_concept_text_enc = self.ema_concept_text_enc
 
             # exponential moving average for concept input encoding
 
@@ -196,16 +189,12 @@ class Rank1EditModule(Module):
             if not initted:
                 self.initted.data.copy_(Tensor([True]))
                 self.ema_concept_text_encs.data.copy_(ema_concept_text_enc)
-
-        # take care of the output
-        # for the keys, make sure to turn off gradients as it is 'locked'
-
-        if self.is_key_proj:
-            superclass_output = superclass_output.detach()
+        else:
+            assert initted, 'you have not initialized or trained this module yet'
 
         # make it easier to match with paper
 
-        i, o, W = concept_text_enc, superclass_output, weights
+        i, o, W = concept_text_enc, self.superclass_output, weights
 
         # main contribution eq (3)
 
