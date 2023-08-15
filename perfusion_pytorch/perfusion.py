@@ -174,6 +174,13 @@ class Rank1EditModule(Module):
                 # for the prompt ids not initialized yet, hard copy over the initial superclass outputs
                 self.superclass_output.data.copy_(superclass_output)
 
+            elif exists(superclass_output):
+                # if text enc with superclass is passed in for more than 1 batch
+                # just take the opportunity to exponentially average it a bit more
+
+                ema_superclass_output = self.superclass_output * decay + superclass_output * (1. - decay)
+                self.superclass_output.data.copy_(ema_superclass_output)
+
             # if any in the batch is not initialized, initialize
 
             if not initted:
