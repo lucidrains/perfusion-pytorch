@@ -36,6 +36,8 @@ def calculate_input_covariance(
 
     all_embeds = []
 
+    length = len(texts)
+
     for batch_ind in range(num_batches):
         start_index = batch_ind * batch_size
         batch_texts = texts[start_index:(start_index + batch_size)]
@@ -44,9 +46,8 @@ def calculate_input_covariance(
         all_embeds.append(embeds[mask])
 
     all_embeds = torch.cat((all_embeds), dim = 0)
-    all_embeds = rearrange(all_embeds, 'n d -> d n')
 
-    return torch.cov(all_embeds, correction = 0, **cov_kwargs)
+    return einsum('n d, n e -> d e', all_embeds, all_embeds) / length
 
 # a module that wraps the keys and values projection of the cross attentions to text encodings
 
