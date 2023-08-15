@@ -1,8 +1,10 @@
 <img src="./key-locked-rank-1-editing.png" width="450px"></img>
 
-## Perfusion - Pytorch (wip)
+## Perfusion - Pytorch
 
 Implementation of <a href="https://arxiv.org/abs/2305.01644">Key-Locked Rank One Editing</a>. <a href="https://research.nvidia.com/labs/par/Perfusion/">Project page</a>
+
+The selling point of this paper is extremely low extra parameters per added concept, down to 100kb.
 
 It seems they successfully applied the Rank-1 editing technique from a <a href="https://arxiv.org/abs/2202.05262">memory editing paper for LLM</a>, with a few improvements. They also identified that the keys determine the "where" of the new concept, while the values determine the "what", and propose local / global-key locking to a superclass concept (while learning the values).
 
