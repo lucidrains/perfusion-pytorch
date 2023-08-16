@@ -137,6 +137,7 @@ class Rank1EditModule(Module):
         assert not exists(key_or_values_proj.bias), 'key value projection in attention should not have bias'
 
         self.num_concepts = num_concepts
+        self.has_multiple_concepts = num_concepts > 1
 
         self.weight = key_or_values_proj.weight
         dim_output, dim_input = self.weight.shape
@@ -169,7 +170,24 @@ class Rank1EditModule(Module):
 
         # C in the paper, inverse precomputed
 
-        self.register_buffer('C_inv', torch.inverse(C))
+        C_inv = torch.inverse(C)
+        self.register_buffer('C_inv', C_inv)
+
+        # for multiple concepts
+        # need cholesky decomposed L_t_inv
+        # Appendix B
+
+        if not self.has_multiple_concepts:
+            return
+
+        try:
+            L = torch.linalg.cholesky(C_inv)
+        except:
+            print('unable to perform cholesky. please make sure input covariance matrix is properly calculated')
+            exit()
+
+        L_T_inv = torch.inverse(L.T)
+        self.register_buffer('L_T_inv', L_T_inv)
 
     def parameters(self):
         if not self.is_key_proj:
