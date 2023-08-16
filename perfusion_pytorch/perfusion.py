@@ -129,11 +129,11 @@ class Rank1EditModule(Module):
         self.register_buffer('initted', torch.zeros(num_concepts, 1).bool())
         self.register_buffer('ema_concept_text_encs', torch.zeros(num_concepts, dim_input))
 
-        # superclass outputs - only optimized for values, but not keys
+        # concept outputs - only optimized for values, but not keys
 
         self.is_key_proj = is_key_proj # will lock the output to the super-class, and turn off gradients
 
-        self.superclass_output = nn.Parameter(torch.zeros(num_concepts, dim_output), requires_grad = not is_key_proj)
+        self.concept_output = nn.Parameter(torch.zeros(num_concepts, dim_output), requires_grad = not is_key_proj)
 
         # C in the paper, inverse precomputed
 
@@ -143,7 +143,7 @@ class Rank1EditModule(Module):
         if not self.is_key_proj:
             return []
 
-        return [self.superclass_outputs]
+        return [self.concept_output]
 
     @beartype
     def forward(
@@ -209,15 +209,15 @@ class Rank1EditModule(Module):
             if not initted:
                 assert exists(superclass_output), 'text_enc_with_superclass must be passed in for the first batch'
 
-                # for the prompt ids not initialized yet, hard copy over the initial superclass outputs
-                self.superclass_output[concept_id].data.copy_(superclass_output)
+                # init concept output with superclass output - fixed for keys, learned for values
+                self.concept_output[concept_id].data.copy_(superclass_output)
 
-            elif exists(superclass_output):
+            elif exists(superclass_output) and self.is_key_proj:
                 # if text enc with superclass is passed in for more than 1 batch
-                # just take the opportunity to exponentially average it a bit more
+                # just take the opportunity to exponentially average it a bit more for the keys, which have fixed concept output (to superclass)
 
-                ema_superclass_output = self.superclass_output * decay + superclass_output * (1. - decay)
-                self.superclass_output[concept_id].data.copy_(ema_superclass_output)
+                ema_concept_output = self.concept_output * decay + superclass_output * (1. - decay)
+                self.concept_output[concept_id].data.copy_(ema_concept_output)
 
             # if any in the batch is not initialized, initialize
 
@@ -234,13 +234,13 @@ class Rank1EditModule(Module):
 
             if not initted:
                 self.initted[concept_id].data.copy_(Tensor([True]))
-                self.ema_concept_text_encs[concept_id].data.copy_(ema_concept_text_enc)
+                self.ema_concept_text_encs[concept_id].data.copy_(concept_text_enc)
         else:
             assert initted, 'you have not initialized or trained this module yet'
 
         # make it easier to match with paper
 
-        i, o, W = concept_text_enc, self.superclass_output[concept_id], weights
+        i, o, W = self.ema_concept_text_encs[concept_id], self.concept_output[concept_id], weights
 
         # main contribution eq (3)
 

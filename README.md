@@ -80,6 +80,8 @@ values = wrapped_to_values(
 
 ## Todo
 
+- [ ] add the zero-shot masking of concept proposed in paper
+- [ ] offer a way to combine separately learned concepts from multiple `Rank1EditModule` into one for inference
 - [ ] handle rank-1 update for multiple concepts
     - [x] handle training with multiple concepts
     - [ ] handle multiple concepts in one prompt at inference - summation of the sigmoid term + outputs
