@@ -303,12 +303,13 @@ def merge_rank1_edit_modules(
     assert len(set([m.concept_outputs.shape[-1] for m in modules])) == 1, 'concept output dimension must be the same'
     assert len(set([m.is_key_proj for m in modules])) == 1, 'all modules must be either for keys, or values. you cannot merge rank 1 edit modules of keys and values together'
 
-    merged_module = deepcopy(modules[0])
+    first_module = modules[0]
+    merged_module = deepcopy(first_module)
 
     print(len(modules))
     merged_module.num_concepts = sum([m.num_concepts for m in modules])
 
     concept_outputs = torch.cat(tuple(m.concept_outputs.data for m in modules), dim = 0)
-    merged_module.concept_outputs = nn.Parameter(concept_outputs)
+    merged_module.concept_outputs = nn.Parameter(concept_outputs, requires_grad = not first_module.is_key_proj)
 
     return merged_module
