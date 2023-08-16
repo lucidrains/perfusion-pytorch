@@ -1,6 +1,8 @@
 from math import ceil
+from copy import deepcopy
+
 from beartype import beartype
-from beartype.typing import Union, List, Optional
+from beartype.typing import Union, List, Optional, Tuple
 
 import torch
 from torch import nn, einsum, Tensor, IntTensor, LongTensor, FloatTensor
@@ -163,7 +165,7 @@ class Rank1EditModule(Module):
 
         self.is_key_proj = is_key_proj # will lock the output to the super-class, and turn off gradients
 
-        self.concept_output = nn.Parameter(torch.zeros(num_concepts, dim_output), requires_grad = not is_key_proj)
+        self.concept_outputs = nn.Parameter(torch.zeros(num_concepts, dim_output), requires_grad = not is_key_proj)
 
         # C in the paper, inverse precomputed
 
@@ -173,7 +175,7 @@ class Rank1EditModule(Module):
         if not self.is_key_proj:
             return []
 
-        return [self.concept_output]
+        return [self.concept_outputs]
 
     @beartype
     def forward(
@@ -240,21 +242,21 @@ class Rank1EditModule(Module):
                 assert exists(superclass_output), 'text_enc_with_superclass must be passed in for the first batch'
 
                 # init concept output with superclass output - fixed for keys, learned for values
-                self.concept_output[concept_id].data.copy_(superclass_output)
+                self.concept_outputs[concept_id].data.copy_(superclass_output)
 
             elif exists(superclass_output) and self.is_key_proj:
                 # if text enc with superclass is passed in for more than 1 batch
                 # just take the opportunity to exponentially average it a bit more for the keys, which have fixed concept output (to superclass)
 
-                ema_concept_output = self.concept_output * decay + superclass_output * (1. - decay)
-                self.concept_output[concept_id].data.copy_(ema_concept_output)
+                ema_concept_output = self.concept_outputs[concept_id] * decay + superclass_output * (1. - decay)
+                self.concept_outputs[concept_id].data.copy_(ema_concept_output)
 
             # if any in the batch is not initialized, initialize
 
             if not initted:
                 ema_concept_text_enc = concept_text_enc
             else:
-                ema_concept_text_enc = self.ema_concept_text_enc[concept_id]
+                ema_concept_text_enc = self.ema_concept_text_encs[concept_id]
 
             # exponential moving average for concept input encoding
 
@@ -270,7 +272,7 @@ class Rank1EditModule(Module):
 
         # make it easier to match with paper
 
-        i, o, W = self.ema_concept_text_encs[concept_id], self.concept_output[concept_id], weights
+        i, o, W = self.ema_concept_text_encs[concept_id], self.concept_outputs[concept_id], weights
 
         # main contribution eq (3)
 
@@ -289,3 +291,24 @@ class Rank1EditModule(Module):
         W_em_orthogonal_term = text_enc_output - (sim * concept_output / i_energy)
 
         return W_em_orthogonal_term + sigmoid_term * rearrange(o, 'd -> 1 1 d')
+
+# for merging trained Rank1EditModule(s) above
+
+@beartype
+def merge_rank1_edit_modules(
+    *modules: Rank1EditModule
+) -> Rank1EditModule:
+
+    assert all([m.initted.item() for m in modules]), 'all modules must be initialized and ideally trained'
+    assert len(set([m.concept_outputs.shape[-1] for m in modules])) == 1, 'concept output dimension must be the same'
+    assert len(set([m.is_key_proj for m in modules])) == 1, 'all modules must be either for keys, or values. you cannot merge rank 1 edit modules of keys and values together'
+
+    merged_module = deepcopy(modules[0])
+
+    print(len(modules))
+    merged_module.num_concepts = sum([m.num_concepts for m in modules])
+
+    concept_outputs = torch.cat(tuple(m.concept_outputs.data for m in modules), dim = 0)
+    merged_module.concept_outputs = nn.Parameter(concept_outputs)
+
+    return merged_module

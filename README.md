@@ -82,12 +82,14 @@ values = wrapped_to_values(
 
 ## Todo
 
-- [ ] offer a way to combine separately learned concepts from multiple `Rank1EditModule` into one for inference
 - [ ] handle rank-1 update for multiple concepts
     - [x] handle training with multiple concepts
     - [ ] handle multiple concepts in one prompt at inference - summation of the sigmoid term + outputs
+        - [ ] accept multiple concept indices
 - [ ] offer a magic function that automatically tries to wire up the cross attention by looking for appropriately named `nn.Linear` and auto-inferring which ones are keys or values
 
+- [x] offer a way to combine separately learned concepts from multiple `Rank1EditModule` into one for inference
+    - [x] offer function for merging `Rank1EditModule`s
 - [x] add the zero-shot masking of concept proposed in paper
 - [x] take care of the function that takes in the dataset and text encoder and precomputes the covariance matrix needed for the rank-1 update
 - [x] instead of having the researcher worry about different learning rates, offer the fractional gradient trick from other paper (to learn the concept embedding)
