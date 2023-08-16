@@ -81,6 +81,36 @@ def return_text_enc_with_concept_and_superclass(
 
     return concept_text_enc, concept_indices, superclass_text_enc
 
+# loss weighted by the mask
+
+@beartype
+def loss_fn_weighted_by_mask(
+    pred: FloatTensor,
+    target: FloatTensor,
+    mask: FloatTensor,
+    normalized_mask_min_value = 0.
+):
+    assert mask.shape[-2:] == pred.shape[-2:] == target.shape[-2:]
+    assert mask.shape[0] == pred.shape[0] == target.shape[0]
+
+    assert (mask.amin() >= 0.).all(), 'mask should not have values below 0'
+
+    if mask.ndim == 4:
+        assert mask.shape[1] == 1
+        mask = rearrange(mask, 'b 1 h w -> b h w')
+
+    loss = F.mse_loss(pred, target, reduction = 'none')
+    loss = reduce(loss, 'b c h w -> b h w')
+
+    # normalize mask by max
+
+    normalized_mask = mask / mask.amax(dim = -1, keepdim = True).clamp(min = 1e-5)
+    normalized_mask = normalized_mask.clamp(min = normalized_mask_min_value)
+
+    loss = loss * normalized_mask
+
+    return loss.mean()
+
 # a module that wraps the keys and values projection of the cross attentions to text encodings
 
 class Rank1EditModule(Module):
