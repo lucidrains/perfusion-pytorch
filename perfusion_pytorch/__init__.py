@@ -4,3 +4,8 @@ from perfusion_pytorch.perfusion import (
     loss_fn_weighted_by_mask,
     merge_rank1_edit_modules
 )
+
+from perfusion_pytorch.embedding import (
+    EmbeddingWrapper,
+    merge_embedding_wrappers
+)
