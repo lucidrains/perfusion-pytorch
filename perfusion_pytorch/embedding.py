@@ -20,7 +20,9 @@ class EmbeddingWrapper(Module):
         num_embeds, dim = embed.weight.shape
 
         self.num_concepts = num_concepts
-        self.concepts = nn.Parameter(torch.randn(num_concepts, dim))
+        self.concepts = nn.Parameter(torch.zeros(num_concepts, dim))
+        nn.init.normal_(self.concepts, std = 0.02)
+
         self.concept_ids = tuple(range(num_embeds, num_embeds + num_concepts))
 
     def parameters(self):

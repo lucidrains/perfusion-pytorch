@@ -20,6 +20,9 @@ from perfusion_pytorch.open_clip import OpenClipAdapter
 def exists(val):
     return val is not None
 
+def all_unique(arr):
+    return len(set(arr)) == len(arr)
+
 IndicesTensor = Union[LongTensor, IntTensor]
 
 # function for calculating C - input covariance
@@ -186,8 +189,11 @@ class Rank1EditModule(Module):
             print('unable to perform cholesky. please make sure input covariance matrix is properly calculated')
             exit()
 
-        L_T_inv = torch.inverse(L.T)
-        self.register_buffer('L_T_inv', L_T_inv)
+        L_T = L.T
+        L_T_inv = torch.inverse(L_T)
+
+        self.register_buffer('L_T', L_T, persistent = False)
+        self.register_buffer('L_T_inv', L_T_inv, persistent = False)
 
     def parameters(self):
         if not self.is_key_proj:
@@ -199,9 +205,9 @@ class Rank1EditModule(Module):
     def forward(
         self,
         text_enc: FloatTensor,
-        concept_indices: IndicesTensor,
+        concept_indices: Union[IndicesTensor, Tuple[IndicesTensor, ...]],
         text_enc_with_superclass: Optional[FloatTensor] = None,
-        concept_id: int = 0
+        concept_id: Union[int, Tuple[int, ...]] = 0
     ):
         assert text_enc.shape[-2] == self.text_seq_len, f'CLIP text sequence length is set to be {self.text_seq_len}, but received text encoding with length {text_enc.shape[-2]}'
 
@@ -228,6 +234,27 @@ class Rank1EditModule(Module):
 
         beta, temperature = (self.train_beta, self.train_temperature) if self.training else (self.eval_beta, self.eval_temperature)
 
+        # determine whether it is single (for training) or multi-concept (only at inference)
+        # may separate into different modules at a future date if too complex in one module
+
+        is_multi_concepts = isinstance(concept_indices, tuple)
+
+        if is_multi_concepts:
+            num_concepts_at_forward = len(concept_indices)
+
+            assert not self.training, 'multi concepts can only be done at inference'
+            assert isinstance(concept_id, tuple)
+            assert all_unique(concept_id)
+            assert len(concept_id) == num_concepts_at_forward
+            assert all([cid < self.num_concepts for cid in concept_id])
+
+            raise NotImplementedError
+        else:
+            num_concepts_at_forward = 1
+
+            assert isinstance(concept_id, int)
+            assert concept_id < self.num_concepts
+
         # extract the concept text encoding input
 
         batch_indices = torch.arange(batch, device = device)
@@ -247,8 +274,6 @@ class Rank1EditModule(Module):
             superclass_output = einsum('i, o i -> o', superclass_text_enc, weights)
 
         # get the initialization state
-
-        assert concept_id < self.num_concepts
 
         initted = self.initted[concept_id].item()
 
@@ -317,16 +342,18 @@ def merge_rank1_edit_modules(
     *modules: Rank1EditModule
 ) -> Rank1EditModule:
 
-    assert all([m.initted.item() for m in modules]), 'all modules must be initialized and ideally trained'
+    assert all([m.initted.all() for m in modules]), 'all modules must be initialized and ideally trained'
     assert len(set([m.concept_outputs.shape[-1] for m in modules])) == 1, 'concept output dimension must be the same'
     assert len(set([m.is_key_proj for m in modules])) == 1, 'all modules must be either for keys, or values. you cannot merge rank 1 edit modules of keys and values together'
 
     first_module = modules[0]
     merged_module = deepcopy(first_module)
 
-    merged_module.num_concepts = sum([m.num_concepts for m in modules])
+    total_concepts = sum([m.num_concepts for m in modules])
+    merged_module.num_concepts = total_concepts
 
     concept_outputs = torch.cat(tuple(m.concept_outputs.data for m in modules), dim = 0)
     merged_module.concept_outputs = nn.Parameter(concept_outputs, requires_grad = not first_module.is_key_proj)
+    merged_module.register_buffer('initted', torch.ones(total_concepts, 1).bool())
 
     return merged_module
