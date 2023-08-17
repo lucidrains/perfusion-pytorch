@@ -140,7 +140,6 @@ class Rank1EditModule(Module):
         assert not exists(key_or_values_proj.bias), 'key value projection in attention should not have bias'
 
         self.num_concepts = num_concepts
-        self.has_multiple_concepts = num_concepts > 1
 
         self.weight = key_or_values_proj.weight
         dim_output, dim_input = self.weight.shape
@@ -176,15 +175,23 @@ class Rank1EditModule(Module):
         C_inv = torch.inverse(C)
         self.register_buffer('C_inv', C_inv)
 
+    @property
+    def num_concepts(self):
+        return self._num_concepts
+
+    @num_concepts.setter
+    def num_concepts(self, value):
+        self._num_concepts = value
+
+        if value == 1:
+            return
+
         # for multiple concepts
         # need cholesky decomposed L_t_inv
         # Appendix B
 
-        if not self.has_multiple_concepts:
-            return
-
         try:
-            L = torch.linalg.cholesky(C_inv)
+            L = torch.linalg.cholesky(self.C_inv)
         except:
             print('unable to perform cholesky. please make sure input covariance matrix is properly calculated')
             exit()
@@ -194,6 +201,10 @@ class Rank1EditModule(Module):
 
         self.register_buffer('L_T', L_T, persistent = False)
         self.register_buffer('L_T_inv', L_T_inv, persistent = False)
+
+    @property
+    def device(self):
+        return next(self.buffers()).device
 
     def parameters(self):
         if not self.is_key_proj:
@@ -205,7 +216,8 @@ class Rank1EditModule(Module):
     def forward(
         self,
         text_enc: FloatTensor,
-        concept_indices: Union[IndicesTensor, Tuple[IndicesTensor, ...]],
+        *,
+        concept_indices: Optional[IndicesTensor] = None,
         text_enc_with_superclass: Optional[FloatTensor] = None,
         concept_id: Union[int, Tuple[int, ...]] = 0
     ):
@@ -220,6 +232,7 @@ class Rank1EditModule(Module):
         d - feature dimension
         i - input dimension
         o - output dimension
+        c - concepts dimension (for multiple concepts)
         """
 
         batch, device = text_enc.shape[0], self.C_inv.device
@@ -237,47 +250,41 @@ class Rank1EditModule(Module):
         # determine whether it is single (for training) or multi-concept (only at inference)
         # may separate into different modules at a future date if too complex in one module
 
-        is_multi_concepts = isinstance(concept_indices, tuple)
+        is_multi_concepts = isinstance(concept_id, tuple)
 
         if is_multi_concepts:
-            num_concepts_at_forward = len(concept_indices)
-
             assert not self.training, 'multi concepts can only be done at inference'
-            assert isinstance(concept_id, tuple)
             assert all_unique(concept_id)
-            assert len(concept_id) == num_concepts_at_forward
             assert all([cid < self.num_concepts for cid in concept_id])
 
-            raise NotImplementedError
+            concept_id_tensor = torch.tensor(concept_id, dtype = torch.long, device = self.device)
         else:
-            num_concepts_at_forward = 1
-
-            assert isinstance(concept_id, int)
             assert concept_id < self.num_concepts
-
-        # extract the concept text encoding input
-
-        batch_indices = torch.arange(batch, device = device)
-        batch_indices = rearrange(batch_indices, 'b -> b 1')
-        concept_indices = rearrange(concept_indices, 'b -> b 1')
-
-        concept_text_enc = text_enc[batch_indices, concept_indices]
-        concept_text_enc = reduce(concept_text_enc, 'b 1 d -> d', 'mean')
-
-        # only if training
-        # do exponential smoothing of the inputs, both concept and superclass
-
-        if exists(text_enc_with_superclass):
-            superclass_text_enc = text_enc_with_superclass[batch_indices, concept_indices]
-            superclass_text_enc = reduce(superclass_text_enc, 'b 1 d -> d', 'mean')
-
-            superclass_output = einsum('i, o i -> o', superclass_text_enc, weights)
+            concept_id_tensor = torch.tensor([concept_id], dtype = torch.long, device = self.device)
 
         # get the initialization state
 
-        initted = self.initted[concept_id].item()
-
         if self.training:
+            initted = self.initted[concept_id].item()
+
+            # extract the concept text encoding input
+
+            batch_indices = torch.arange(batch, device = device)
+            batch_indices = rearrange(batch_indices, 'b -> b 1')
+            concept_indices = rearrange(concept_indices, 'b -> b 1')
+
+            concept_text_enc = text_enc[batch_indices, concept_indices]
+            concept_text_enc = reduce(concept_text_enc, 'b 1 d -> d', 'mean')
+
+            # only if training
+            # do exponential smoothing of the inputs, both concept and superclass
+
+            if exists(text_enc_with_superclass):
+                superclass_text_enc = text_enc_with_superclass[batch_indices, concept_indices]
+                superclass_text_enc = reduce(superclass_text_enc, 'b 1 d -> d', 'mean')
+
+                superclass_output = einsum('i, o i -> o', superclass_text_enc, weights)
+
             # store the superclass i* if not all initialized
             # else fetch it from the buffer
 
@@ -311,29 +318,49 @@ class Rank1EditModule(Module):
                 self.initted[concept_id].data.copy_(Tensor([True]))
                 self.ema_concept_text_encs[concept_id].data.copy_(concept_text_enc)
         else:
-            assert initted, 'you have not initialized or trained this module yet'
+            assert self.initted[concept_id_tensor].all(), 'you have not initialized or trained this module for the concepts id given'
 
         # make it easier to match with paper
 
-        i, o, W = self.ema_concept_text_encs[concept_id], self.concept_outputs[concept_id], weights
+        i, o, W = self.ema_concept_text_encs[concept_id_tensor], self.concept_outputs[concept_id_tensor], weights
 
         # main contribution eq (3)
 
-        i_energy = opt_einsum('o, o i, i ->', i, Ci, i)
+        i_energy = opt_einsum('c o, o i, c i ->', i, Ci, i)
 
-        sim = opt_einsum('b n o, o i, i -> b n', text_enc, Ci, i)
+        sim = opt_einsum('b n o, o i, c i -> c b n', text_enc, Ci, i)
         sim = rearrange(sim, '... -> ... 1')
 
         sigmoid_term = (((sim / i_energy) - beta) / temperature).sigmoid()
 
-        text_enc_output = einsum('b n i, o i -> b n o', text_enc, W)
+        if is_multi_concepts:
+            L_T, L_T_inv = self.L_T, self.L_T_inv
 
-        concept_output = einsum('i, o i -> o', i, W)
-        concept_output = rearrange(concept_output, 'd -> 1 1 d')
+            # metric - metric space - variable with tilde in Appendix B
 
-        W_em_orthogonal_term = text_enc_output - (sim * concept_output / i_energy)
+            # equation (6)
 
-        return W_em_orthogonal_term + sigmoid_term * rearrange(o, 'd -> 1 1 d')
+            i_metric = einsum('o i, c i -> c o', L_T, i)
+            u_metric, _ = torch.linalg.qr(i_metric.T)
+            u = einsum('o i, i c -> c o', L_T_inv, u_metric)
+
+            # equation (10)
+
+            em_orthogonal = text_enc - opt_einsum('c o, b n i, c i -> b n o', u, text_enc, u)
+
+            W_em_orthogonal_term = einsum('b n i, o i -> b n o', em_orthogonal, W)
+        else:
+            text_enc_output = einsum('b n i, o i -> b n o', text_enc, W)
+
+            concept_output = einsum('c i, o i -> c o', i, W)
+            concept_output = rearrange(concept_output, 'c d -> c 1 1 d')
+
+            W_em_orthogonal_term = text_enc_output - reduce(sim * concept_output / i_energy, 'c ... -> ...', 'sum')
+
+        gated_term = sigmoid_term * rearrange(o, 'c d -> c 1 1 d')
+        gated_term = reduce(gated_term, 'c ... -> ...', 'sum')
+
+        return W_em_orthogonal_term + gated_term
 
 # for merging trained Rank1EditModule(s) above
 
@@ -354,6 +381,10 @@ def merge_rank1_edit_modules(
 
     concept_outputs = torch.cat(tuple(m.concept_outputs.data for m in modules), dim = 0)
     merged_module.concept_outputs = nn.Parameter(concept_outputs, requires_grad = not first_module.is_key_proj)
+
+    ema_concept_text_encs = torch.cat(tuple(m.ema_concept_text_encs.data for m in modules), dim = 0)
+    merged_module.register_buffer('ema_concept_text_encs',  ema_concept_text_encs)
+
     merged_module.register_buffer('initted', torch.ones(total_concepts, 1).bool())
 
     return merged_module

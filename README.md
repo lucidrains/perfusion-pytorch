@@ -48,18 +48,18 @@ wrapped_to_values = Rank1EditModule(
 
 text_enc = torch.randn(4, 77, 768)                  # regular input
 text_enc_with_superclass = torch.randn(4, 77, 768)  # init_input in algorithm 1, for key-locking
-concept_ids = torch.randint(0, 77, (4,))
+concept_indices = torch.randint(0, 77, (4,))
 
 keys = wrapped_to_keys(
     text_enc,
-    text_enc_with_superclass,
-    concept_ids
+    concept_indices = concept_indices,
+    text_enc_with_superclass = text_enc_with_superclass,
 )
 
 values = wrapped_to_values(
     text_enc,
-    text_enc_with_superclass,
-    concept_ids
+    concept_indices = concept_indices,
+    text_enc_with_superclass = text_enc_with_superclass,
 )
 
 # after much training ...
@@ -67,27 +67,20 @@ values = wrapped_to_values(
 wrapped_to_keys.eval()
 wrapped_to_values.eval()
 
-keys = wrapped_to_keys(
-    text_enc,
-    text_enc_with_superclass,
-    concept_ids
-)
+keys = wrapped_to_keys(text_enc)
 
-values = wrapped_to_values(
-    text_enc,
-    text_enc_with_superclass,
-    concept_ids
-)
+values = wrapped_to_values(text_enc)
+
 ```
 
 ## Todo
 
-- [ ] handle rank-1 update for multiple concepts
-    - [x] handle training with multiple concepts
-    - [ ] handle multiple concepts in one prompt at inference - summation of the sigmoid term + outputs
-        - [ ] accept multiple concept indices
 - [ ] offer a magic function that automatically tries to wire up the cross attention by looking for appropriately named `nn.Linear` and auto-inferring which ones are keys or values
+- [ ] show example in readme for inference with multiple concepts
+- [ ] review multiple concepts
 
+- [x] handle multiple concepts in one prompt at inference - summation of the sigmoid term + outputs
+    - [x] accept multiple concept indices
 - [x] offer a way to combine separately learned concepts from multiple `Rank1EditModule` into one for inference
     - [x] offer function for merging `Rank1EditModule`s
 - [x] add the zero-shot masking of concept proposed in paper
