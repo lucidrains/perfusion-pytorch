@@ -20,7 +20,7 @@ from perfusion_pytorch.open_clip import OpenClipAdapter
 def exists(val):
     return val is not None
 
-def all_unique(arr):
+def is_all_unique(arr):
     return len(set(arr)) == len(arr)
 
 IndicesTensor = Union[LongTensor, IntTensor]
@@ -254,7 +254,7 @@ class Rank1EditModule(Module):
 
         if is_multi_concepts:
             assert not self.training, 'multi concepts can only be done at inference'
-            assert all_unique(concept_id)
+            assert is_all_unique(concept_id)
             assert all([cid < self.num_concepts for cid in concept_id])
 
             concept_id_tensor = torch.tensor(concept_id, dtype = torch.long, device = self.device)
