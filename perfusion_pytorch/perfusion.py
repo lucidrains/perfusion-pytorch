@@ -388,3 +388,26 @@ def merge_rank1_edit_modules(
     merged_module.register_buffer('initted', torch.ones(total_concepts, 1).bool())
 
     return merged_module
+
+# function for wiring up the cross attention
+
+@beartype
+def make_key_value_proj_rank1_edit_modules_(
+    cross_attention: nn.Module,
+    *,
+    input_covariance: Tensor,
+    key_proj_name: str,
+    value_proj_name: str,
+    **rank1_edit_module_kwargs
+):
+    linear_key = getattr(cross_attention, key_proj_name, None)
+    linear_values = getattr(cross_attention, value_proj_name, None)
+
+    assert isinstance(linear_key, nn.Linear), f'{key_proj_name} must point to where the keys projection is (ex. self.to_keys = nn.Linear(in, out, bias = False) -> key_proj_name = "to_keys")'
+    assert isinstance(linear_values, nn.Linear), f'{value_proj_name} must point to where the values projection is (ex. self.to_keys = nn.Linear(in, out, bias = False) -> value_proj_name = "to_values")'
+
+    rank1_edit_module_keys = Rank1EditModule(linear_key, input_covariance = input_covariance, is_key_proj = True, **rank1_edit_module_kwargs)
+    rank1_edit_module_values = Rank1EditModule(linear_values, input_covariance = input_covariance, is_key_proj = False, **rank1_edit_module_kwargs)
+
+    setattr(cross_attention, key_proj_name, rank1_edit_module_keys)
+    setattr(cross_attention, value_proj_name, rank1_edit_module_values)

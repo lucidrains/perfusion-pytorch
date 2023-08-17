@@ -75,10 +75,11 @@ values = wrapped_to_values(text_enc)
 
 ## Todo
 
-- [ ] offer a magic function that automatically tries to wire up the cross attention by looking for appropriately named `nn.Linear` and auto-inferring which ones are keys or values
 - [ ] show example in readme for inference with multiple concepts
 - [ ] review multiple concepts
+- [ ] automatically infer where keys and values projection are if not specified for the `make_key_value_proj_rank1_edit_modules_` function
 
+- [x] offer a function that wires up the cross attention
 - [x] handle multiple concepts in one prompt at inference - summation of the sigmoid term + outputs
     - [x] accept multiple concept indices
 - [x] offer a way to combine separately learned concepts from multiple `Rank1EditModule` into one for inference
