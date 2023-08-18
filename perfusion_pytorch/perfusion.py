@@ -312,7 +312,7 @@ class Rank1EditModule(Module):
 
             # exponential moving average for concept input encoding
 
-            concept_text_enc = ema_concept_text_enc * decay + concept_text_enc * (1. - decay)
+            ema_concept_text_enc = ema_concept_text_enc * decay + concept_text_enc * (1. - decay)
 
             # store
 
@@ -321,7 +321,7 @@ class Rank1EditModule(Module):
 
             # update ema i_*
 
-            self.ema_concept_text_encs[concept_id].data.copy_(concept_text_enc)
+            self.ema_concept_text_encs[concept_id].data.copy_(ema_concept_text_enc)
 
         else:
             assert self.initted[concept_id_tensor].all(), 'you have not initialized or trained this module for the concepts id given'
@@ -329,6 +329,12 @@ class Rank1EditModule(Module):
         # make it easier to match with paper
 
         i, o, W = self.ema_concept_text_encs[concept_id_tensor], self.concept_outputs[concept_id_tensor], weights
+
+        # if training, i* needs gradients. use straight-through?
+        # check with author about this
+
+        if self.training:
+            i = i + concept_text_enc - concept_text_enc.detach()
 
         # main contribution eq (3)
 
