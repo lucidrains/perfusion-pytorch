@@ -316,7 +316,11 @@ class Rank1EditModule(Module):
 
             if not initted:
                 self.initted[concept_id].data.copy_(Tensor([True]))
-                self.ema_concept_text_encs[concept_id].data.copy_(concept_text_enc)
+
+            # update ema i_*
+
+            self.ema_concept_text_encs[concept_id].data.copy_(concept_text_enc)
+
         else:
             assert self.initted[concept_id_tensor].all(), 'you have not initialized or trained this module for the concepts id given'
 

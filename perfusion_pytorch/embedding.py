@@ -25,7 +25,8 @@ class EmbeddingWrapper(Module):
     def __init__(
         self,
         embed: nn.Embedding,
-        num_concepts = 1
+        num_concepts = 1,
+        superclass_embed_id: Optional[Union[int, Tuple[int, ...]]] = None
     ):
         super().__init__()
         self.embed = embed
@@ -34,7 +35,20 @@ class EmbeddingWrapper(Module):
         self.num_embeds = num_embeds
         self.num_concepts = num_concepts
         self.concepts = nn.Parameter(torch.zeros(num_concepts, dim))
-        nn.init.normal_(self.concepts, std = 0.02)
+
+        if exists(superclass_embed_id):
+            # author had better results initializing the concept embed to the super class embed, allow for that option
+
+            if not isinstance(superclass_embed_id, tuple):
+                superclass_embed_id = (superclass_embed_id,)
+
+            superclass_embed_indices = torch.tensor(list(superclass_embed_id))
+            superclass_embeds = embed(superclass_embed_indices)
+            self.concepts.data.copy_(superclass_embeds)
+        else:
+            # otherwise initialize to usually small init for embeds
+
+            nn.init.normal_(self.concepts, std = 0.02)
 
         self.concept_embed_ids = tuple(range(num_embeds, num_embeds + num_concepts))
 
@@ -44,7 +58,7 @@ class EmbeddingWrapper(Module):
     def forward(
         self,
         x,
-        concept_id: Optional[Union[int, Tuple[int, ...]]] = None
+        concept_id: Optional[Union[int, Tuple[int, ...]]] = None,
     ):
         concept_masks = tuple(concept_id == x for concept_id in self.concept_embed_ids)
 
