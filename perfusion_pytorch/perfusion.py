@@ -126,20 +126,22 @@ class Rank1EditModule(Module):
         key_or_values_proj: nn.Linear,
         *,
         num_concepts: int = 1,
-        C: Tensor,                         # covariance of input, precomputed from 100K laion text
+        C: Tensor,                           # covariance of input, precomputed from 100K laion text
         text_seq_len: int = 77,
         is_key_proj: bool = False,
         input_decay = 0.99,
         train_beta = 0.75,
         train_temperature = 0.1,
-        eval_beta = 0.70,                  # in paper, specified a range (0.6 - 0.75) for local-key lock, and (0.4 -0.6) for global-key lock
+        eval_beta = 0.70,                    # in paper, specified a range (0.6 - 0.75) for local-key lock, and (0.4 -0.6) for global-key lock
         eval_temperature = 0.15,
-        frac_gradient_concept_embed = 0.1  # they use a slower learning rate for the embed - this can be achieved by a trick to reduce the gradients going backwards through an operation
+        frac_gradient_concept_embed = 0.1,   # they use a slower learning rate for the embed - this can be achieved by a trick to reduce the gradients going backwards through an operation
+        multi_concepts_use_cholesky = False  # use an approximated technique without Cholesky root for multiple concepts
     ):
         super().__init__()
         assert not exists(key_or_values_proj.bias), 'key value projection in attention should not have bias'
 
         self.num_concepts = num_concepts
+        self.multi_concepts_use_cholesky = multi_concepts_use_cholesky
 
         self.weight = key_or_values_proj.weight
         dim_output, dim_input = self.weight.shape
@@ -183,7 +185,7 @@ class Rank1EditModule(Module):
     def num_concepts(self, value):
         self._num_concepts = value
 
-        if value == 1:
+        if value == 1 or not self.multi_concepts_use_cholesky:
             return
 
         # for multiple concepts
@@ -330,36 +332,50 @@ class Rank1EditModule(Module):
 
         # main contribution eq (3)
 
-        i_energy = opt_einsum('c o, o i, c i ->', i, Ci, i)
+        i_energy = opt_einsum('c o, o i, c i -> c', i, Ci, i)
+        i_energy_inv = i_energy ** -1
 
         sim = opt_einsum('b n o, o i, c i -> c b n', text_enc, Ci, i)
-        sim = rearrange(sim, '... -> ... 1')
 
-        sigmoid_term = (((sim / i_energy) - beta) / temperature).sigmoid()
+        # calculate W_em_orthogonal_term - depends on single or multiple concepts
 
         if is_multi_concepts:
-            L_T, L_T_inv = self.L_T, self.L_T_inv
+            if self.multi_concepts_use_cholesky:
+                L_T, L_T_inv = self.L_T, self.L_T_inv
 
-            # metric - metric space - variable with tilde in Appendix B
+                # metric - metric space - variable with tilde in Appendix B
 
-            # equation (6)
+                # equation (6)
 
-            i_metric = einsum('o i, c i -> c o', L_T, i)
-            u_metric, _ = torch.linalg.qr(i_metric.T)
-            u = einsum('o i, i c -> c o', L_T_inv, u_metric)
+                i_metric = einsum('o i, c i -> c o', L_T, i)
+                u_metric, _ = torch.linalg.qr(i_metric.T)
+                u = einsum('o i, i c -> c o', L_T_inv, u_metric)
 
-            # equation (10)
+                # equation (10)
 
-            em_orthogonal = text_enc - opt_einsum('c o, b n i, c i -> b n o', u, text_enc, u)
+                em_orthogonal = text_enc - opt_einsum('c o, b n i, c i -> b n o', u, text_enc, u)
 
-            W_em_orthogonal_term = einsum('b n i, o i -> b n o', em_orthogonal, W)
+                W_em_orthogonal_term = einsum('b n i, o i -> b n o', em_orthogonal, W)
+            else:
+                # an approximated version, without Cholesky root
+                # author says to use this preferentially, and fallback to Cholesky root if there are issues
+
+                text_enc_output = einsum('b n i, o i -> b n o', text_enc, W)
+
+                W_em_orthogonal_term = text_enc_output - opt_einsum('c b n, c i, o i, c -> b n o', sim, i, W, i_energy_inv)
         else:
             text_enc_output = einsum('b n i, o i -> b n o', text_enc, W)
 
             concept_output = einsum('c i, o i -> c o', i, W)
-            concept_output = rearrange(concept_output, 'c d -> c 1 1 d')
 
-            W_em_orthogonal_term = text_enc_output - reduce(sim * concept_output / i_energy, 'c ... -> ...', 'sum')
+            W_em_orthogonal_term = text_enc_output - opt_einsum('c b n, c o, c -> b n o', sim, concept_output, i_energy_inv)
+
+        # calculate sigmoid_term (gating)
+
+        sim = rearrange(sim, 'c b n -> c b n 1')
+        i_energy = rearrange(i_energy, 'c -> c 1 1 1')
+
+        sigmoid_term = (((sim / i_energy) - beta) / temperature).sigmoid()
 
         gated_term = sigmoid_term * rearrange(o, 'c d -> c 1 1 d')
         gated_term = reduce(gated_term, 'c ... -> ...', 'sum')
@@ -370,7 +386,8 @@ class Rank1EditModule(Module):
 
 @beartype
 def merge_rank1_edit_modules(
-    *modules: Rank1EditModule
+    *modules: Rank1EditModule,
+    use_cholesky = False
 ) -> Rank1EditModule:
 
     assert all([m.initted.all() for m in modules]), 'all modules must be initialized and ideally trained'
@@ -379,6 +396,7 @@ def merge_rank1_edit_modules(
 
     first_module = modules[0]
     merged_module = deepcopy(first_module)
+    merged_module.use_cholesky = use_cholesky
 
     total_concepts = sum([m.num_concepts for m in modules])
     merged_module.num_concepts = total_concepts
