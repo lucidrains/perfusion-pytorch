@@ -76,6 +76,7 @@ values = wrapped_to_values(text_enc)
 ## Todo
 
 - [ ] wire up with SD 1.5, starting with xiao's dreambooth-sd
+- [ ] embedding wrapper should take care of substituting with super class token id and return embedding with super class
 - [ ] show example in readme for inference with multiple concepts
 - [ ] automatically infer where keys and values projection are if not specified for the `make_key_value_proj_rank1_edit_modules_` function
 
