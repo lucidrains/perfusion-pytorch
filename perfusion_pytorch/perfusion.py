@@ -1,5 +1,6 @@
 from math import ceil
 from copy import deepcopy
+from pathlib import Path
 
 from beartype import beartype
 from beartype.typing import Union, List, Optional, Tuple
@@ -15,6 +16,24 @@ from opt_einsum import contract as opt_einsum
 
 from perfusion_pytorch.open_clip import OpenClipAdapter
 
+# constants
+
+IndicesTensor = Union[LongTensor, IntTensor]
+
+# precomputed covariance paths
+# will add for more models going forward, if the paper checks out
+
+CURRENT_DIR = Path(__file__).parents[0]
+DATA_DIR = CURRENT_DIR / 'data'
+
+assert DATA_DIR.is_dir()
+
+COVARIANCE_FILENAME_BY_TEXT_IMAGE_MODEL = dict(
+    SD15 = DATA_DIR / 'covariance_CLIP_VIT-L-14.pt'
+)
+
+assert all([filepath.exists() for filepath in COVARIANCE_FILENAME_BY_TEXT_IMAGE_MODEL.values()])
+
 # helpers
 
 def exists(val):
@@ -22,8 +41,6 @@ def exists(val):
 
 def is_all_unique(arr):
     return len(set(arr)) == len(arr)
-
-IndicesTensor = Union[LongTensor, IntTensor]
 
 # function for calculating C - input covariance
 
@@ -35,8 +52,6 @@ def calculate_input_covariance(
     batch_size = 32,
     **cov_kwargs
 ):
-    embeds, mask = clip.embed_texts(texts)
-
     num_batches = ceil(len(texts) / batch_size)
 
     all_embeds = []
@@ -126,7 +141,8 @@ class Rank1EditModule(Module):
         key_or_values_proj: nn.Linear,
         *,
         num_concepts: int = 1,
-        C: Tensor,                           # covariance of input, precomputed from 100K laion text
+        C: Optional[Tensor] = None,          # covariance of input, precomputed from 100K laion text
+        default_model = 'SD15',
         text_seq_len: int = 77,
         is_key_proj: bool = False,
         input_decay = 0.99,
@@ -172,7 +188,18 @@ class Rank1EditModule(Module):
 
         self.concept_outputs = nn.Parameter(torch.zeros(num_concepts, dim_output), requires_grad = not is_key_proj)
 
-        # C in the paper, inverse precomputed
+        # input covariance C in the paper, inverse precomputed
+        # if covariance was not passed in, then use default for SD1.5, precomputed by @BradVidler
+
+        if not exists(C):
+            covariance_filepath = COVARIANCE_FILENAME_BY_TEXT_IMAGE_MODEL.get(default_model, None)
+
+            assert exists(covariance_filepath), f'{default_model} not found in the list of precomputed covariances {tuple(COVARIANCE_FILENAME_BY_TEXT_IMAGE_MODEL.keys())}'
+
+            C = torch.load(str(covariance_filepath))
+            print(f'precomputed covariance loaded from {str(covariance_filepath)}')
+
+        # calculate C_inv
 
         C_inv = torch.inverse(C)
         self.register_buffer('C_inv', C_inv)

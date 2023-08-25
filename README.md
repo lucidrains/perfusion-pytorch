@@ -14,6 +14,8 @@ It seems they successfully applied the Rank-1 editing technique from a <a href="
 
 - Yoad Tewel for the multiple code reviews and clarifying emails
 
+- <a href="https://github.com/BradVidler">Brad Vidler</a> for precomputing the covariance matrix for the CLIP used in Stable Diffusion 1.5!
+
 - All the maintainers at <a href="https://github.com/mlfoundations/open_clip">OpenClip</a>, for their SOTA open sourced contrastive learning text-image models
 
 ## Install
@@ -33,17 +35,13 @@ from perfusion_pytorch import Rank1EditModule
 to_keys = nn.Linear(768, 320, bias = False)
 to_values = nn.Linear(768, 320, bias = False)
 
-input_covariance = torch.randn(768, 768)
-
 wrapped_to_keys = Rank1EditModule(
     to_keys,
-    C = input_covariance,
     is_key_proj = True
 )
 
 wrapped_to_values = Rank1EditModule(
-    to_values,
-    C = input_covariance
+    to_values
 )
 
 text_enc = torch.randn(4, 77, 768)                  # regular input
@@ -76,10 +74,10 @@ values = wrapped_to_values(text_enc)
 ## Todo
 
 - [ ] wire up with SD 1.5, starting with xiao's dreambooth-sd
-- [ ] embedding wrapper should take care of substituting with super class token id and return embedding with super class
 - [ ] show example in readme for inference with multiple concepts
 - [ ] automatically infer where keys and values projection are if not specified for the `make_key_value_proj_rank1_edit_modules_` function
 
+- [x] embedding wrapper should take care of substituting with super class token id and return embedding with super class
 - [x] review multiple concepts - thanks to Yoad
 - [x] offer a function that wires up the cross attention
 - [x] handle multiple concepts in one prompt at inference - summation of the sigmoid term + outputs
