@@ -2,10 +2,19 @@ import torch
 from torch import nn
 from torch.nn import Module
 
+from collections import namedtuple
+
 from beartype import beartype
 from beartype.typing import Optional, Tuple, Union
 
 from einops import rearrange
+
+# constants
+
+EmbeddingReturn = namedtuple('EmbeddingReturn', [
+    'embed_with_concept',
+    'embed_with_superclass'
+])
 
 # helper functions
 
@@ -63,7 +72,7 @@ class EmbeddingWrapper(Module):
         x,
         concept_id: Optional[Union[int, Tuple[int, ...]]] = None,
         return_embed_with_superclass = True
-    ):
+    ) -> EmbeddingReturn:
         concept_masks = tuple(concept_id == x for concept_id in self.concept_embed_ids)
 
         if exists(concept_id):
@@ -101,9 +110,9 @@ class EmbeddingWrapper(Module):
             with torch.no_grad():
                 superclass_embeds = self.embed(x)
 
-            return embeds, superclass_embeds
+            return EmbeddingReturn(embeds, superclass_embeds)
 
-        return embeds
+        return EmbeddingReturn(embeds, None)
 
 @beartype
 def merge_embedding_wrappers(
