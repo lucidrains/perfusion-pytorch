@@ -36,6 +36,9 @@ class EmbeddingWrapper(Module):
         self.num_concepts = num_concepts
         self.concepts = nn.Parameter(torch.zeros(num_concepts, dim))
 
+        self.superclass_embed_id = superclass_embed_id
+        assert not (exists(superclass_embed_id) and num_concepts > 1), 'cannot do multi concept with superclass embed id given'
+
         if exists(superclass_embed_id):
             # author had better results initializing the concept embed to the super class embed, allow for that option
 
@@ -59,6 +62,7 @@ class EmbeddingWrapper(Module):
         self,
         x,
         concept_id: Optional[Union[int, Tuple[int, ...]]] = None,
+        return_embed_with_superclass = True
     ):
         concept_masks = tuple(concept_id == x for concept_id in self.concept_embed_ids)
 
@@ -87,6 +91,17 @@ class EmbeddingWrapper(Module):
                 concept,
                 embeds
             )
+
+        # if training, and superclass embed id given
+        # also return embeddings with superclass, for deriving superclass_text_enc
+
+        if self.training and exists(self.superclass_embed_id) and return_embed_with_superclass:
+            x = x.masked_fill(concept_masks[0], self.superclass_embed_id)
+
+            with torch.no_grad():
+                superclass_embeds = self.embed(x)
+
+            return embeds, superclass_embeds
 
         return embeds
 
