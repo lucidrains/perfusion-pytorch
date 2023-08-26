@@ -17,7 +17,8 @@ from open_clip import tokenizer
 EmbeddingReturn = namedtuple('EmbeddingReturn', [
     'embed_with_concept',
     'embed_with_superclass',
-    'embed_mask'
+    'embed_mask',
+    'concept_indices'
 ])
 
 # helper functions
@@ -120,6 +121,11 @@ class EmbeddingWrapper(Module):
         return_embed_with_superclass = True
     ) -> EmbeddingReturn:
 
+        assert not (self.training and self.num_concepts > 1), 'cannot train with multiple concepts'
+
+        if self.training:
+            concept_id = default(concept_id, 0)
+
         if exists(concept_id):
             if not isinstance(concept_id, tuple):
                 concept_id = (concept_id,)
@@ -136,6 +142,7 @@ class EmbeddingWrapper(Module):
             assert superclass_mask.any(dim = -1).all(), 'superclass embed id must be present for all prompts'
 
             # automatically replace the superclass id with the concept id
+
             x = torch.where(superclass_mask, inferred_concept_id, x)
 
         # get the embedding mask, defined as not padding id
@@ -177,6 +184,14 @@ class EmbeddingWrapper(Module):
                 embeds
             )
 
+        # whether to return concept indices for the rank-1-edit modules
+
+        concept_indices = None
+
+        if self.training and exists(concept_id) and len(concept_id) == 1:
+            concept_mask, = concept_masks
+            concept_indices = (concept_mask.cumsum(dim = -1) == 0).sum(dim = -1).long()
+
         # if training, and superclass embed id given
         # also return embeddings with superclass, for deriving superclass_text_enc
 
@@ -186,9 +201,9 @@ class EmbeddingWrapper(Module):
             with torch.no_grad():
                 superclass_embeds = self.embed(x)
 
-            return EmbeddingReturn(embeds, superclass_embeds, embed_mask)
+            return EmbeddingReturn(embeds, superclass_embeds, embed_mask, concept_indices)
 
-        return EmbeddingReturn(embeds, None, embed_mask)
+        return EmbeddingReturn(embeds, None, embed_mask, concept_indices)
 
 @beartype
 def merge_embedding_wrappers(

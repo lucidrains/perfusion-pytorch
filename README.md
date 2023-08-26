@@ -92,11 +92,11 @@ wrapped_embed = EmbeddingWrapper(
 
 # now just pass in your prompts with the superclass id
 
-embeds_with_new_concept, embeds_with_superclass, embed_mask = wrapped_embed([
+embeds_with_new_concept, embeds_with_superclass, embed_mask, concept_indices = wrapped_embed([
     'a portrait of dog',
     'dog running through a green field',
     'a man walking his dog'
-]) # (3, 77, 512), (3, 77, 512), (3, 77)
+]) # (3, 77, 512), (3, 77, 512), (3, 77), (3,)
 
 # now pass both embeds through clip text transformer
 # the embed_mask needs to be passed to the cross attention as key padding mask
