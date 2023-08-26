@@ -73,6 +73,35 @@ values = wrapped_to_values(text_enc)
 
 ```
 
+The repository also contains an `EmbeddingWrapper` that makes it easy to train on a new concept (and for eventual inference with multiple concepts)
+
+```python
+import torch
+from torch import nn
+
+from perfusion_pytorch import EmbeddingWrapper
+
+embed = nn.Embedding(49407, 512) # open clip embedding, somewhere in the module tree of stable diffusion
+
+# wrap it, and will automatically create a new concept for learning, based on the superclass embed string
+
+wrapped_embed = EmbeddingWrapper(
+    embed,
+    superclass_string = 'dog'
+)
+
+# now just pass in your prompts with the superclass id
+
+embeds_with_new_concept, embeds_with_superclass, embed_mask = wrapped_embed([
+    'a portrait of dog',
+    'dog running through a green field',
+    'a man walking his dog'
+]) # (3, 77, 512), (3, 77, 512), (3, 77)
+
+# now pass both embeds through clip text transformer
+# the embed_mask needs to be passed to the cross attention as key padding mask
+```
+
 ## Todo
 
 - [ ] wire up with SD 1.5, starting with xiao's dreambooth-sd
