@@ -71,7 +71,7 @@ class EmbeddingWrapper(Module):
         self.num_concepts = num_concepts
         self.concepts = nn.Parameter(torch.zeros(num_concepts, dim))
 
-        assert exists(superclass_embed_id) ^ exists(superclass_string), 'either superclass embed id is given, or the superclass string'
+        assert not (exists(superclass_embed_id) and exists(superclass_string)), 'either superclass embed id is given, or the superclass string'
 
         self.pad_id = tokenizer_pad_id
         self.tokenize = None
@@ -130,8 +130,8 @@ class EmbeddingWrapper(Module):
             if not isinstance(concept_id, tuple):
                 concept_id = (concept_id,)
 
-            assert len(concept_id) == 1, 'can only train or inference on single concepts if passing in list of superclass strings'
-            assert self.num_concepts == 1
+            assert not self.training or len(concept_id) == 1, 'can only train or inference on single concepts if passing in list of superclass strings'
+            assert not self.training or self.num_concepts == 1
 
         if is_bearable(x, List[str]):
             inferred_concept_id = self.concept_embed_ids[0]
@@ -220,6 +220,8 @@ def merge_embedding_wrappers(
         embed = embed,
         num_concepts = total_concepts
     )
+
+    merged_concepts.eval()
 
     concepts = torch.cat(tuple(embed.concepts.data for embed in embeds), dim = 0)
 

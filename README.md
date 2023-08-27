@@ -48,7 +48,8 @@ wrapped_to_values = Rank1EditModule(
 
 text_enc = torch.randn(4, 77, 768)                  # regular input
 text_enc_with_superclass = torch.randn(4, 77, 768)  # init_input in algorithm 1, for key-locking
-concept_indices = torch.randint(0, 77, (4,))
+concept_indices = torch.randint(0, 77, (4,))        # index where the concept or superclass concept token is in the sequence
+key_pad_mask = torch.ones(4, 77).bool()
 
 keys = wrapped_to_keys(
     text_enc,
@@ -81,7 +82,7 @@ from torch import nn
 
 from perfusion_pytorch import EmbeddingWrapper
 
-embed = nn.Embedding(49407, 512) # open clip embedding, somewhere in the module tree of stable diffusion
+embed = nn.Embedding(49408, 512) # open clip embedding, somewhere in the module tree of stable diffusion
 
 # wrap it, and will automatically create a new concept for learning, based on the superclass embed string
 

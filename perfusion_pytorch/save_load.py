@@ -9,8 +9,23 @@ from beartype import beartype
 from perfusion_pytorch.embedding import EmbeddingWrapper
 from perfusion_pytorch.perfusion import Rank1EditModule
 
+# helper functions
+
 def exists(val):
     return val is not None
+
+# function that automatically finds all the parameters necessary for fine tuning
+
+@beartype
+def get_finetune_parameters(text_image_model: Module):
+    params = []
+    for module in text_image_model.modules():
+        if isinstance(module, (EmbeddingWrapper, Rank1EditModule)):
+            params.extend(module.parameters())
+
+    return params
+
+# saving and loading the necessary extra finetuned params
 
 @beartype
 def save(

@@ -13,5 +13,6 @@ from perfusion_pytorch.embedding import (
 
 from perfusion_pytorch.save_load import (
     save,
-    load
+    load,
+    get_finetune_parameters
 )
