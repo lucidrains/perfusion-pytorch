@@ -59,7 +59,7 @@ class EmbeddingWrapper(Module):
         num_concepts = 1,
         superclass_embed_id: Optional[Union[int, Tuple[int, ...]]] = None,
         superclass_string: Optional[str] = None,
-        tokenize: Callable[str, Tensor] = tokenizer.tokenize,
+        tokenize: Callable[[List[str]], Tensor] = tokenizer.tokenize,
         tokenizer_pad_id: int = 0,
         tokenizer_sos_eos_id: Tuple[int, int] = (49406, 49407)
     ):
