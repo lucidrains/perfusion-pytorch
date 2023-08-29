@@ -118,7 +118,8 @@ class EmbeddingWrapper(Module):
         self,
         x: Union[Tensor, List[str]],
         concept_id: Optional[Union[int, Tuple[int, ...]]] = None,
-        return_embed_with_superclass = True
+        return_embed_with_superclass = True,
+        clip_transformer_fn: Optional[Callable[[Tensor], Tensor]] = None
     ) -> EmbeddingReturn:
 
         assert not (self.training and self.num_concepts > 1), 'cannot train with multiple concepts'
@@ -195,15 +196,30 @@ class EmbeddingWrapper(Module):
         # if training, and superclass embed id given
         # also return embeddings with superclass, for deriving superclass_text_enc
 
+        superclass_embeds = None
+
         if self.training and exists(self.superclass_embed_id) and return_embed_with_superclass:
             x = x.masked_fill(concept_masks[0], self.superclass_embed_id)
 
             with torch.no_grad():
                 superclass_embeds = self.embed(x)
 
-            return EmbeddingReturn(embeds, superclass_embeds, embed_mask, concept_indices)
+        # if the clip transformer function is passed in, transform the embeds and superclass_embeds into the text_enc and superclass_text_enc, to be forwarded by cross attentions into the Rank1EditModules
 
-        return EmbeddingReturn(embeds, None, embed_mask, concept_indices)
+        if exists(clip_transformer_fn):
+            with torch.no_grad():
+                embeds = clip_transformer_fn(embeds)
+
+                if exists(superclass_embeds):
+                    superclass_embeds = clip_transformer_fn(superclass_embeds)
+
+        # return tuple, with
+        # 1. text embeds | encodings
+        # 2. superclass text embeds | encoding
+        # 3. text mask
+        # 4. concept indices
+
+        return EmbeddingReturn(embeds, superclass_embeds, embed_mask, concept_indices)
 
 @beartype
 def merge_embedding_wrappers(
