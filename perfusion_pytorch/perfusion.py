@@ -29,7 +29,7 @@ DATA_DIR = CURRENT_DIR / 'data'
 assert DATA_DIR.is_dir()
 
 COVARIANCE_FILENAME_BY_TEXT_IMAGE_MODEL = dict(
-    SD15 = DATA_DIR / 'covariance_CLIP_VIT-L-14.pt'
+    SD15 = DATA_DIR / 'covariance_CLIP_ViT-L-14.pt'
 )
 
 assert all([filepath.exists() for filepath in COVARIANCE_FILENAME_BY_TEXT_IMAGE_MODEL.values()])
