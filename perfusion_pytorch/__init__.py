@@ -8,6 +8,7 @@ from perfusion_pytorch.perfusion import (
 
 from perfusion_pytorch.embedding import (
     EmbeddingWrapper,
+    OpenClipEmbedWrapper,
     merge_embedding_wrappers
 )
 

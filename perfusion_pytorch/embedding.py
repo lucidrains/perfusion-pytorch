@@ -221,6 +221,46 @@ class EmbeddingWrapper(Module):
 
         return EmbeddingReturn(embeds, superclass_embeds, embed_mask, concept_indices)
 
+# a wrapper for clip
+# that automatically wraps the token embedding with new concept
+# and on forward, passes the concept embeddings + superclass concept embeddings through the text transformer + final layernorm
+# as well as make the forward pass the ids and superclass_ids through the modified text encoder twice (will attempt to substitute the nn.Embedding with an nn.Identity)
+
+from open_clip import CLIP
+
+class OpenClipEmbedWrapper(Module):
+    @beartype
+    def __init__(
+        self,
+        clip: CLIP,
+        **embedding_wrapper_kwargs
+    ):
+        super().__init__()
+        self.wrapped_embed = EmbeddingWrapper(clip.token_embedding, **embedding_wrapper_kwargs)
+
+        self.text_transformer = nn.Sequential(
+            clip.transformer,
+            clip.ln_final
+        )
+
+    def forward(
+        self,
+        x,
+        **kwargs
+    ) -> EmbeddingWrapper:
+        text_embeds, superclass_text_embeds, text_mask, concept_indices = self.wrapped_embed(x, **kwargs)
+
+        text_enc = self.text_transformer(text_embeds)
+
+        superclass_text_enc = None
+
+        if exists(superclass_text_embeds):
+            superclass_text_enc = self.text_transformer(superclass_text_embeds)
+
+        return EmbeddingReturn(text_enc, superclass_text_embeds, text_mask, concept_indices)
+
+# merging multiple embedding wrappers (with one concepts) into a merged embedding wrapper with multiple concepts
+
 @beartype
 def merge_embedding_wrappers(
     *embeds: EmbeddingWrapper

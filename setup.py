@@ -19,7 +19,7 @@ setup(
   install_requires=[
     'beartype',
     'einops>=0.6.1',
-    'open-clip-torch>=2.0.0,<3.0.0',
+    'open-clip-torch',
     'opt-einsum',
     'torch>=2.0'
   ],

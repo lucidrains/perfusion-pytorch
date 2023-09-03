@@ -103,6 +103,29 @@ embeds_with_new_concept, embeds_with_superclass, embed_mask, concept_indices = w
 # the embed_mask needs to be passed to the cross attention as key padding mask
 ```
 
+If you can identify the `CLIP` instance within the stable diffusion instance, you can also pass it directly to the `OpenClipEmbedWrapper` to gain everything you need on forward for the cross attention layers
+
+ex.
+
+```python
+from perfusion_pytorch import OpenClipEmbedWrapper
+
+texts = [
+    'a portrait of dog',
+    'dog running through a green field',
+    'a man walking his dog'
+]
+
+wrapped_clip_with_new_concept = OpenClipEmbedWrapper(
+    text_encoder.clip,
+    superclass_string = 'dog'
+)
+
+enc, superclass_enc, mask, indices = wrapped_clip_with_new_concept(texts)
+
+# (3, 77, 512), (3, 77, 512), (3, 77), (3,)
+```
+
 ## Todo
 
 - [ ] wire up with SD 1.5, starting with xiao's dreambooth-sd
