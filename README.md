@@ -117,11 +117,11 @@ texts = [
 ]
 
 wrapped_clip_with_new_concept = OpenClipEmbedWrapper(
-    text_encoder.clip,
+    stable_diffusion.path.to.clip,
     superclass_string = 'dog'
 )
 
-enc, superclass_enc, mask, indices = wrapped_clip_with_new_concept(texts)
+text_enc, superclass_enc, mask, indices = wrapped_clip_with_new_concept(texts)
 
 # (3, 77, 512), (3, 77, 512), (3, 77), (3,)
 ```
