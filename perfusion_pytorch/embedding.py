@@ -226,21 +226,28 @@ class EmbeddingWrapper(Module):
 # and on forward, passes the concept embeddings + superclass concept embeddings through the text transformer + final layernorm
 # as well as make the forward pass the ids and superclass_ids through the modified text encoder twice (will attempt to substitute the nn.Embedding with an nn.Identity)
 
-from open_clip import CLIP
-
 class OpenClipEmbedWrapper(Module):
     @beartype
     def __init__(
         self,
-        clip: CLIP,
+        clip: Module,
+        text_transformer_path = 'transformer',
+        ln_final_path = 'ln_final',  # in CLIP, they had the final layernorm separate from the transformer
         **embedding_wrapper_kwargs
     ):
         super().__init__()
         self.wrapped_embed = EmbeddingWrapper(clip.token_embedding, **embedding_wrapper_kwargs)
 
+        path_to_modules = dict([(path, mod) for path, mod in clip.named_modules()])
+
+        assert text_transformer_path in path_to_modules
+
+        text_transformer = path_to_modules[text_transformer_path]
+        ln_final = path_to_modules.get(ln_final_path, nn.Identity())
+
         self.text_transformer = nn.Sequential(
-            clip.transformer,
-            clip.ln_final
+            text_transformer,
+            ln_final
         )
 
     def forward(

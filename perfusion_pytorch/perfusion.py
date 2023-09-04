@@ -69,38 +69,6 @@ def calculate_input_covariance(
 
     return einsum('n d, n e -> d e', all_embeds, all_embeds) / length
 
-@beartype
-def find_first_index(
-    indices: IndicesTensor,
-    concept_or_superclass_id: int
-):
-    """
-    for deriving the concept_indices to be passed into the Rank1EditModule
-    """
-
-    edge = (indices == concept_or_superclass_id).cumsum(dim = -1)  # [1, 3, 5, 4, 1, 1], 4 -> [0, 0, 0, 1, 0, 0, 0] -> [0, 0, 0, 1, 1, 1]
-    return edge.sum(dim = -1)
-
-@beartype
-def return_text_enc_with_concept_and_superclass(
-    text_ids: IndicesTensor,
-    concept_id: int,
-    superclass_id: int,
-    clip: Optional[OpenClipAdapter] = None
-):
-    batch = text_ids.shape[0]
-    batch_arange = torch.arange(batch, device = text_ids.device)
-    concept_indices = find_first_index(text_ids, concept_id)
-    text_ids_with_superclass = text_ids[batch_arange, concept_indices] = superclass_ids
-
-    if not exists(clip):
-        return text_ids, concept_indices, text_ids_with_superclass
-
-    concept_text_enc = clip.embed_texts(text_ids)
-    superclass_text_enc = clip.embed_texts(text_ids_with_superclass)
-
-    return concept_text_enc, concept_indices, superclass_text_enc
-
 # loss weighted by the mask
 
 @beartype
