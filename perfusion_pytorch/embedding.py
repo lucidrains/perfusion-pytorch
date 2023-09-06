@@ -113,6 +113,10 @@ class EmbeddingWrapper(Module):
     def parameters(self):
         return [self.concepts]
 
+    @property
+    def device(self):
+        return self.concepts.device
+
     @beartype
     def forward(
         self,
@@ -138,6 +142,7 @@ class EmbeddingWrapper(Module):
             inferred_concept_id = self.concept_embed_ids[0]
 
             x = self.tokenize(x)
+            x = x.to(self.device)
 
             superclass_mask = x == self.superclass_embed_id
             assert superclass_mask.any(dim = -1).all(), 'superclass embed id must be present for all prompts'
