@@ -6,7 +6,7 @@ from beartype import beartype
 from beartype.typing import Union, List, Optional, Tuple
 
 import torch
-from torch import nn, einsum, Tensor, IntTensor, LongTensor, FloatTensor
+from torch import nn, einsum, Tensor
 from torch.nn import Module
 import torch.nn.functional as F
 
@@ -15,10 +15,6 @@ from einops import rearrange, reduce
 from opt_einsum import contract as opt_einsum
 
 from perfusion_pytorch.open_clip import OpenClipAdapter
-
-# constants
-
-IndicesTensor = Union[LongTensor, IntTensor]
 
 # precomputed covariance paths
 # will add for more models going forward, if the paper checks out
@@ -73,9 +69,9 @@ def calculate_input_covariance(
 
 @beartype
 def loss_fn_weighted_by_mask(
-    pred: FloatTensor,
-    target: FloatTensor,
-    mask: FloatTensor,
+    pred: Tensor,
+    target: Tensor,
+    mask: Tensor,
     normalized_mask_min_value = 0.
 ):
     assert mask.shape[-2:] == pred.shape[-2:] == target.shape[-2:]
@@ -212,10 +208,10 @@ class Rank1EditModule(Module):
     @beartype
     def forward(
         self,
-        text_enc: FloatTensor,
+        text_enc: Tensor,
         *,
-        concept_indices: Optional[IndicesTensor] = None,
-        text_enc_with_superclass: Optional[FloatTensor] = None,
+        concept_indices: Optional[Tensor] = None,
+        text_enc_with_superclass: Optional[Tensor] = None,
         concept_id: Union[int, Tuple[int, ...]] = 0
     ):
         assert text_enc.shape[-2] == self.text_seq_len, f'CLIP text sequence length is set to be {self.text_seq_len}, but received text encoding with length {text_enc.shape[-2]}'
