@@ -269,7 +269,7 @@ class OpenClipEmbedWrapper(Module):
         if exists(superclass_text_embeds):
             superclass_text_enc = self.text_transformer(superclass_text_embeds)
 
-        return EmbeddingReturn(text_enc, superclass_text_embeds, text_mask, concept_indices)
+        return EmbeddingReturn(text_enc, superclass_text_enc, text_mask, concept_indices)
 
 # merging multiple embedding wrappers (with one concepts) into a merged embedding wrapper with multiple concepts
 
